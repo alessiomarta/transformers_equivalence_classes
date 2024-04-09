@@ -27,7 +27,7 @@ LR = 5e-5
 
 
 def load_model(fname="mnist_vit.mdl", device="cuda"):
-    if device == "cpu":
+    if device.type == "cpu":
         model = torch.load(fname, map_location=torch.device("cpu"))
     else:
         model = torch.load(fname)
@@ -191,7 +191,7 @@ def simec_vit(
             plt.clf()
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     mean, std = (0.5,), (0.5,)
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize(mean, std)]
@@ -211,6 +211,7 @@ if __name__ == "main":
         testset, batch_size=BATCH_SIZE, shuffle=False
     )
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(fname="mnist_vit.mdl", device=device)
 
     deactivate_dropout_layers(model)
