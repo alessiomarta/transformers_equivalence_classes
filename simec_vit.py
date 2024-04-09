@@ -129,6 +129,7 @@ def simec_vit(
     delta=5e-2,
     threshold=1e-2,
     print_every_n_iter=100,
+    img_out_dir="",
 ):
 
     # 10x10 identity matrix that we use as standard Riemannain metric of the embedding space.
@@ -184,7 +185,7 @@ def simec_vit(
             print(eigenvalues[id_eigen])
             print(torch.nn.functional.softmax(output))
             print("-------------------------------------------------")
-            fname = str(int(i / print_every_n_iter)) + ".png"
+            fname = img_out_dir + str(int(i / print_every_n_iter)) + ".png"
             fig = plt.figure
             plt.imshow(simec_input[0, 0].cpu().detach().numpy(), cmap="gray")
             plt.savefig(fname)
@@ -225,4 +226,4 @@ if __name__ == "__main__":
     # print(imgs[0,0])
     # print((testloader.dataset.test_data[0]))
 
-    simec_vit(model, imgs[0], 100000)
+    simec_vit(model, imgs[0], 100000, img_out_dir="data/res_img/")
