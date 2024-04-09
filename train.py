@@ -91,7 +91,7 @@ def train_model(
     if test_metrics and testloader:
         y_true_test = []
         y_pred_test = []
-        with torch.inference_mode:
+        with torch.inference_mode():
             for _, (test_img, test_labels) in enumerate(testloader):
                 test_img = test_img.to(device)
                 test_labels = test_labels.to(device)
