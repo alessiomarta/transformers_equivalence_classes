@@ -26,8 +26,11 @@ BATCH_SIZE = 128
 LR = 5e-5
 
 
-def load_model(fname="mnist_vit.mdl"):
-    model = torch.load(fname)
+def load_model(fname="mnist_vit.mdl", device="cuda"):
+    if device == "cpu":
+        model = torch.load(fname, map_location=torch.device("cpu"))
+    else:
+        model = torch.load(fname)
     return model
 
 
@@ -208,7 +211,7 @@ if __name__ == "main":
         testset, batch_size=BATCH_SIZE, shuffle=False
     )
 
-    model = load_model(fname="mnist_vit.mdl")
+    model = load_model(fname="mnist_vit.mdl", device=device)
 
     deactivate_dropout_layers(model)
     # Get a mini-batch of train data loaders.
