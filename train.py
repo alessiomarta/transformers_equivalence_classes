@@ -81,8 +81,9 @@ def train_model(
         loss_hist["train accuracy"].append(accuracy)
 
         print("-------------------------------------------------")
-        print("Epoch: {} Train mean loss: {:.8f}".format(epoch, epoch_train_loss))
-        print("       Train Accuracy%: ", accuracy, "==", total_correct, "/", total)
+        print(f"Epoch: {epoch}")
+        print(f"       Train Mean Loss: {epoch_train_loss}")
+        print(f"       Train Accuracy%: {accuracy}=={total_correct}/{total}")
         print("-------------------------------------------------")
 
     if measure_training_time:
@@ -127,7 +128,7 @@ testloader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle
 
 trained_model = train_model(
     device=dev,
-    num_epochs=1,
+    num_epochs=100,
     trainloader=trainloader,
     measure_training_time=True,
     test_metrics=True,
