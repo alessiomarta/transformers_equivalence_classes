@@ -218,8 +218,10 @@ class ViT(nn.Module):
         self.classifier = nn.Sequential(nn.Linear(self.embed_size, self.classes))
 
     def forward(self, x, mask=None):
-        b, c, h, w = x.size()
-        x = x.reshape(b, int((h / self.p) * (w / self.p)), c * self.p * self.p)
+        if x.dim() > 3:
+            b, c, h, w = x.size()
+            x = x.reshape(b, int((h / self.p) * (w / self.p)), c * self.p * self.p)
+
         x = self.embeddings(x)
 
         b, n, e = x.size()
