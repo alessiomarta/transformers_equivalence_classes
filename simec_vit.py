@@ -10,7 +10,7 @@ from torchsummary import summary
 
 import numpy as np
 import matplotlib.pyplot as plt
-from transformer_package.models import ViT
+from vit import ViT
 
 from jacobian_function import jacobian
 
@@ -18,7 +18,10 @@ import matplotlib.pyplot as plt
 
 from PIL import Image
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # torch.manual_seed(0)
 # np.random.seed(0)
 
@@ -28,10 +31,10 @@ LR = 5e-5
 
 def load_model(fname="mnist_vit.mdl", device="cuda"):
     if device.type == "cpu":
-        model = torch.load(fname, map_location=torch.device("cpu"))
-    else:
-        model = torch.load(fname)
-    return model
+        return torch.load(fname, map_location=torch.device("cpu"))
+    if device.type == "mps":
+        return torch.load(fname, map_location=torch.device("mps"))
+    return torch.load(fname)
 
 
 def train_model(
@@ -107,6 +110,7 @@ def train_model(
         print("-------------------------------------------------")
 
     if save:
+        print("Saving model...")
         torch.save(model, "mnist_vit.mdl")
 
     return model
@@ -212,7 +216,10 @@ if __name__ == "__main__":
         testset, batch_size=BATCH_SIZE, shuffle=False
     )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = load_model(fname="mnist_vit.mdl", device=device)
 
     deactivate_dropout_layers(model)
