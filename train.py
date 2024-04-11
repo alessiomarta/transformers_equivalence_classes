@@ -3,6 +3,7 @@ import torch
 from torchvision import datasets, transforms
 
 from vit import ViTForClassfication
+from data import prepare_data
 
 
 CONFIG = {
@@ -175,45 +176,6 @@ def parse_args():
         else:
             args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return args
-
-
-def prepare_data(
-    batch_size=128, num_workers=2, train_sample_size=None, test_sample_size=None
-):
-    mean, std = (0.5,), (0.5,)
-    transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean, std)]
-    )
-
-    trainset = datasets.MNIST(
-        "data/MNIST/", download=True, train=True, transform=transform
-    )
-
-    if train_sample_size is not None:
-        # Randomly sample a subset of the training set
-        indices = torch.randperm(len(trainset))[:train_sample_size]
-        trainset = torch.utils.data.Subset(trainset, indices)
-
-    trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-
-    testset = datasets.MNIST(
-        "data/MNIST/", download=True, train=False, transform=transform
-    )
-
-    if test_sample_size is not None:
-        # Randomly sample a subset of the test set
-        indices = torch.randperm(len(testset))[:test_sample_size]
-        testset = torch.utils.data.Subset(testset, indices)
-
-    testloader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
-
-    classes = tuple(range(10))
-
-    return trainloader, testloader, classes
 
 
 def main():
