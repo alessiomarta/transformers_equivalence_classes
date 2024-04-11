@@ -1,139 +1,247 @@
-import time
+import time, json, os, argparse
 import torch
-import torch.nn as nn
 from torchvision import datasets, transforms
-from vit import ViT
 
-LR = 5e-5
-BATCH_SIZE = 128
+from vit import ViTForClassfication
 
 
-def train_model(
-    device,
-    num_epochs,
-    trainloader,
-    image_size=28,
-    channel_size=1,
-    patch_size=7,
-    embed_size=512,
-    num_heads=8,
-    classes=10,
-    num_layers=3,
-    hidden_size=256,
-    dropout=0.2,
-    measure_training_time=False,
-    test_metrics=False,
-    testloader=None,
+CONFIG = {
+    "patch_size": 2,
+    "hidden_size": 48,
+    "num_hidden_layers": 4,
+    "num_attention_heads": 4,
+    "intermediate_size": 4 * 48,
+    "hidden_dropout_prob": 0.01,
+    "attention_probs_dropout_prob": 0.01,
+    "initializer_range": 0.02,
+    "image_size": 28,
+    "num_classes": 10,
+    "num_channels": 1,
+    "qkv_bias": True,
+}
+
+
+def save_experiment(
+    experiment_name,
+    config,
+    model,
+    train_losses,
+    test_losses,
+    accuracies,
+    base_dir="experiments",
 ):
+    outdir = os.path.join(base_dir, experiment_name)
+    os.makedirs(outdir, exist_ok=True)
 
-    if measure_training_time:
-        print("Training starts")
-        start_time = time.time()
-    model = ViT(
-        image_size,
-        channel_size,
-        patch_size,
-        embed_size,
-        num_heads,
-        classes,
-        num_layers,
-        hidden_size,
-        dropout=dropout,
-    ).to(device)
-    criterion = nn.NLLLoss()
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=LR)
+    # Save the config
+    configfile = os.path.join(outdir, "config.json")
+    with open(configfile, "w") as f:
+        json.dump(config, f, sort_keys=True, indent=4)
 
-    loss_hist = {}
-    loss_hist["train accuracy"] = []
-    loss_hist["train loss"] = []
+    # Save the metrics
+    jsonfile = os.path.join(outdir, "metrics.json")
+    with open(jsonfile, "w") as f:
+        data = {
+            "train_losses": train_losses,
+            "test_losses": test_losses,
+            "accuracies": accuracies,
+        }
+        json.dump(data, f, sort_keys=True, indent=4)
 
-    for epoch in range(num_epochs):
-        model.train()
+    # Save the model
+    save_checkpoint(experiment_name, model, "final", base_dir=base_dir)
 
-        epoch_train_loss = 0
 
-        y_true_train = []
-        y_pred_train = []
+def save_checkpoint(experiment_name, model, epoch, base_dir="experiments"):
+    outdir = os.path.join(base_dir, experiment_name)
+    os.makedirs(outdir, exist_ok=True)
+    cpfile = os.path.join(outdir, f"model_{epoch}.pt")
+    torch.save(model.state_dict(), cpfile)
 
-        for _, (img, labels) in enumerate(trainloader):
-            img = img.to(device)
-            labels = labels.to(device)
 
-            preds = model(img)
+class Trainer:
+    """
+    The simple trainer.
+    """
 
-            loss = criterion(preds, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    def __init__(self, model, optimizer, loss_fn, exp_name, device):
+        self.model = model.to(device)
+        self.optimizer = optimizer
+        self.loss_fn = loss_fn
+        self.exp_name = exp_name
+        self.device = device
 
-            y_pred_train.extend(preds.detach().argmax(dim=-1).tolist())
-            y_true_train.extend(labels.detach().tolist())
-
-            epoch_train_loss += loss.item()
-
-        loss_hist["train loss"].append(epoch_train_loss)
-        total_correct = len(
-            [True for x, y in zip(y_pred_train, y_true_train) if x == y]
+    def train(
+        self,
+        trainloader,
+        testloader,
+        epochs,
+        save_model_every_n_epochs=0,
+        measure_time=False,
+    ):
+        """
+        Train the model for the specified number of epochs.
+        """
+        # Keep track of the losses and accuracies
+        train_losses, test_losses, accuracies = [], [], []
+        # Train the model
+        for i in range(epochs):
+            if measure_time:
+                start_time = time.time()
+            train_loss = self.train_epoch(trainloader)
+            accuracy, test_loss = self.evaluate(testloader)
+            train_losses.append(train_loss)
+            test_losses.append(test_loss)
+            accuracies.append(accuracy)
+            print("---------------------------------------------------------")
+            print(
+                f"Epoch: {i+1}/{epochs}, Train loss: {train_loss:.4f}, Test loss: {test_loss:.4f}, Accuracy: {accuracy:.4f}"
+            )
+            if measure_time:
+                print(f"Epoch ended in {(time.time() - start_time)} seconds")
+            if (
+                save_model_every_n_epochs > 0
+                and (i + 1) % save_model_every_n_epochs == 0
+                and i + 1 != epochs
+            ):
+                print("\tSave checkpoint at epoch", i + 1)
+                save_checkpoint(self.exp_name, self.model, i + 1)
+            print("---------------------------------------------------------")
+        # Save the experiment
+        save_experiment(
+            self.exp_name, CONFIG, self.model, train_losses, test_losses, accuracies
         )
-        total = len(y_pred_train)
-        accuracy = total_correct * 100 / total
 
-        loss_hist["train accuracy"].append(accuracy)
+    def train_epoch(self, trainloader):
+        """
+        Train the model for one epoch.
+        """
+        self.model.train()
+        total_loss = 0
+        for batch in trainloader:
+            # Move the batch to the device
+            batch = [t.to(self.device) for t in batch]
+            images, labels = batch
+            # Zero the gradients
+            self.optimizer.zero_grad()
+            # Calculate the loss
+            loss = self.loss_fn(self.model(images)[0], labels)
+            # Backpropagate the loss
+            loss.backward()
+            # Update the model's parameters
+            self.optimizer.step()
+            total_loss += loss.item() * len(images)
+        return total_loss / len(trainloader.dataset)
 
-        print("-------------------------------------------------")
-        print(f"Epoch: {epoch}")
-        print(f"       Train Mean Loss: {epoch_train_loss}")
-        print(f"       Train Accuracy%: {accuracy}=={total_correct}/{total}")
-        print("-------------------------------------------------")
+    @torch.no_grad()
+    def evaluate(self, testloader):
+        self.model.eval()
+        total_loss = 0
+        correct = 0
+        with torch.no_grad():
+            for batch in testloader:
+                # Move the batch to the device
+                batch = [t.to(self.device) for t in batch]
+                images, labels = batch
 
-    if measure_training_time:
-        print(f"--- Training ended in {(time.time() - start_time)} seconds ---")
+                # Get predictions
+                logits, _ = self.model(images)
 
-    if test_metrics and testloader:
-        y_true_test = []
-        y_pred_test = []
-        with torch.inference_mode():
-            for _, (test_img, test_labels) in enumerate(testloader):
-                test_img = test_img.to(device)
-                test_labels = test_labels.to(device)
-                test_pred = model(test_img)
-                y_pred_test.extend(test_pred.detach().argmax(dim=-1).tolist())
-                y_true_test.extend(test_labels.detach().tolist())
-        total_correct = len([True for x, y in zip(y_pred_test, y_true_test) if x == y])
-        total = len(y_pred_test)
-        accuracy = total_correct * 100 / total
+                # Calculate the loss
+                loss = self.loss_fn(logits, labels)
+                total_loss += loss.item() * len(images)
 
-        print("---------------------------------------------------------")
-        print(f"       Test Accuracy: {accuracy}=={total_correct}/{total}")
-        print("---------------------------------------------------------")
-
-    return model
+                # Calculate the accuracy
+                predictions = torch.argmax(logits, dim=1)
+                correct += torch.sum(predictions == labels).item()
+        accuracy = correct / len(testloader.dataset)
+        avg_loss = total_loss / len(testloader.dataset)
+        return accuracy, avg_loss
 
 
-if torch.backends.mps.is_available():
-    dev = torch.device("mps")
-else:
-    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Device: {dev.type}")
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exp-name", type=str, required=True)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--lr", type=float, default=1e-2)
+    parser.add_argument("--device", type=str)
+    parser.add_argument("--save-model-every", type=int, default=0)
+
+    args = parser.parse_args()
+    if args.device is None:
+        if torch.backends.mps.is_available():
+            args.device = torch.device("mps")
+        else:
+            args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    return args
 
 
-mean, std = (0.5,), (0.5,)
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean, std)])
+def prepare_data(
+    batch_size=128, num_workers=2, train_sample_size=None, test_sample_size=None
+):
+    mean, std = (0.5,), (0.5,)
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+    )
 
-trainset = datasets.MNIST("data/MNIST/", download=True, train=True, transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=BATCH_SIZE, shuffle=True)
+    trainset = datasets.MNIST(
+        "data/MNIST/", download=True, train=True, transform=transform
+    )
 
-testset = datasets.MNIST("data/MNIST/", download=True, train=False, transform=transform)
-testloader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE, shuffle=False)
+    if train_sample_size is not None:
+        # Randomly sample a subset of the training set
+        indices = torch.randperm(len(trainset))[:train_sample_size]
+        trainset = torch.utils.data.Subset(trainset, indices)
 
-trained_model = train_model(
-    device=dev,
-    num_epochs=100,
-    trainloader=trainloader,
-    measure_training_time=True,
-    test_metrics=True,
-    testloader=testloader,
-)
+    trainloader = torch.utils.data.DataLoader(
+        trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
 
-print("Saving model...")
-torch.save(trained_model, "mnist_vit_trained.mdl")
+    testset = datasets.MNIST(
+        "data/MNIST/", download=True, train=False, transform=transform
+    )
+
+    if test_sample_size is not None:
+        # Randomly sample a subset of the test set
+        indices = torch.randperm(len(testset))[:test_sample_size]
+        testset = torch.utils.data.Subset(testset, indices)
+
+    testloader = torch.utils.data.DataLoader(
+        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
+
+    classes = tuple(range(10))
+
+    return trainloader, testloader, classes
+
+
+def main():
+    args = parse_args()
+    # Training parameters
+    batch_size = args.batch_size
+    epochs = args.epochs
+    lr = args.lr
+    device = args.device
+    save_model_every_n_epochs = args.save_model_every
+    # Load the MNIST dataset
+    print("Preparing data ...")
+    trainloader, testloader, _ = prepare_data(batch_size=batch_size)
+    # Create the model, optimizer, loss function and trainer
+    print("Creating the model, optimizer, loss function and trainer ...")
+    model = ViTForClassfication(CONFIG)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
+    loss_fn = torch.nn.CrossEntropyLoss()
+    trainer = Trainer(model, optimizer, loss_fn, args.exp_name, device=device)
+    print("Training starts!")
+    trainer.train(
+        trainloader,
+        testloader,
+        epochs,
+        save_model_every_n_epochs=save_model_every_n_epochs,
+        measure_time=True,
+    )
+
+
+if __name__ == "__main__":
+    main()
