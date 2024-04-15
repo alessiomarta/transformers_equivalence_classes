@@ -81,9 +81,12 @@ def simec_vit(
     emb_inp_simec = model.embedding(starting_img).requires_grad_(True)
 
     fname = img_out_dir + ".png"
-    image = emb_inp_simec - model.embedding.position_embeddings
-    image = image[:, 1:, :].transpose(1, 2).reshape(1, 48, 14, 14)
-    image = back_projection(image).squeeze().cpu().detach().numpy()
+    back_emb_inp_simec = emb_inp_simec.clone() - model.embedding.position_embeddings
+    back_emb_inp_simec = (
+        back_emb_inp_simec[:, 1:, :].transpose(1, 2).reshape(1, 48, 14, 14)
+    )
+    back_emb_inp_simec = back_projection(back_emb_inp_simec)
+    image = back_emb_inp_simec.squeeze().cpu().detach().numpy()
     _, ax = plt.subplots()
     ax.imshow(image, cmap="gray")
     plt.savefig(fname)
@@ -144,9 +147,12 @@ def simec_vit(
             print(eigenvalues[id_eigen])
             print("-------------------------------------------------")
             fname = img_out_dir + str(int(i / print_every_n_iter)) + ".png"
+
             image = emb_inp_simec - model.embedding.position_embeddings
             image = image[:, 1:, :].transpose(1, 2).reshape(1, 48, 14, 14)
-            image = back_projection(image).squeeze().cpu().detach().numpy()
+            image = back_projection(image)
+            image = starting_img + back_emb_inp_simec - image
+            image = image.squeeze().cpu().detach().numpy()
             _, ax = plt.subplots()
             ax.imshow(image, cmap="gray")
             ax.add_patch(
