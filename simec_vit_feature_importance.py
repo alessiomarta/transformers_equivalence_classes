@@ -139,8 +139,8 @@ def simec_vit(
                     values, vectors = torch.linalg.eigh(pullback_metric, UPLO="U")
                     eigenvalues.append(values)
                     eigenvectors.append(vectors)
-            eigenvectors = torch.stack(eigenvectors, dim=-1).reshape(28, 28, 28, 28)
-            eigenvalues = torch.stack(eigenvalues, dim=-1).reshape(28, 28, 28)
+            eigenvectors = torch.stack(eigenvectors, dim=0).reshape(28, 28, 28, 28)
+            eigenvalues = torch.stack(eigenvalues, dim=0).reshape(28, 28, 28)
             return eigenvectors, eigenvalues
 
     # fname = img_out_dir + "start.png"
@@ -177,20 +177,22 @@ def simec_vit(
 
     # Plot embeddings as image with decoder
     image_emb_inp_simec = decoder(emb_inp_simec.clone()).squeeze().type(torch.double)
-    basis_changes = []
+    image = image_emb_inp_simec.squeeze().cpu().detach().numpy()
+    _, ax = plt.subplots()
+    ax.imshow(image, cmap="gray")
+
     for h in range(image_emb_inp_simec.size(0)):
         for w in range(image_emb_inp_simec.size(1)):
             eigevec = eigenvectors_decoder[h, w]
             eigevec_inverse = torch.inverse(eigevec)
             basis_change = torch.mm(eigevec_inverse, image_emb_inp_simec)
             basis_change = torch.mm(basis_change, eigevec)
-            basis_changes.append(basis_change)
-    # fname = img_out_dir + ".png"
-    image = basis_change.squeeze().cpu().detach().numpy()
-    _, ax = plt.subplots()
-    ax.imshow(image, cmap="gray")
-    # plt.savefig(fname)
-    # plt.clf()
+            # fname = img_out_dir + ".png"
+        image = basis_change.squeeze().cpu().detach().numpy()
+        _, ax = plt.subplots()
+        ax.imshow(image, cmap="gray")
+        # plt.savefig(fname)
+        # plt.clf()
 
     # Compute the output of the encoder. This is the output which we want to keep constant
     encoder_output = model.encoder(emb_inp_simec)[0]
