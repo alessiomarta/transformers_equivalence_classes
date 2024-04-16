@@ -93,62 +93,40 @@ def deactivate_dropout_layers(model):
         block.mlp.dropout.p = 0.0
 
 
-def simec_vit(
+def simec_decoder(
     model,
     starting_img,
-    n_iterations,
-    eq_class_patch_id,
     patch_size,
     device,
-    delta=5e-2,
-    threshold=1e-2,
-    print_every_n_iter=100,
-    img_out_dir=".",
 ):
-    def simec(input_simec, output_simec, select_patch=True):
+    def simec(input_simec, output_simec):
         # Compute the pullback metric
-        if select_patch:
-            jac = jacobian(output_simec, input_simec)[eq_class_patch_id]
-            jac_t = torch.transpose(jac, -2, -1)
-            tmp = torch.mm(jac, g)
-            if device.type == "mps":
-                # mps doen't support float64, must convert in float32
-                pullback_metric = torch.mm(tmp, jac_t).type(torch.float32)
-            else:
-                # The conversion to double is done in order to avoid the following error:
-                # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
-                pullback_metric = torch.mm(tmp, jac_t).type(torch.double)
-            return torch.linalg.eigh(pullback_metric, UPLO="U")
-        else:
-            jac = jacobian2D(output_simec, input_simec)
-            jac_t = jac.permute(-1, -2, -3, -4)
-            eigenvalues, eigenvectors = [], []
-            for h in range(jac.size(0)):
-                for w in range(jac.size(1)):
-                    tmp = torch.mm(jac[h, w], g)
-                    if device.type == "mps":
-                        pullback_metric = torch.mm(tmp, jac_t[:, :, w, h]).type(
-                            torch.float32
-                        )
-                        eigenvalues.append()
-                    else:
-                        pullback_metric = torch.mm(tmp, jac_t[:, :, w, h]).type(
-                            torch.double
-                        )
-                    # Compute eigenvalues and eigenvectors
-                    values, vectors = torch.linalg.eigh(pullback_metric, UPLO="U")
-                    eigenvalues.append(values)
-                    eigenvectors.append(vectors)
-            eigenvectors = torch.stack(eigenvectors, dim=0).reshape(28, 28, 28, 28)
-            eigenvalues = torch.stack(eigenvalues, dim=0).reshape(28, 28, 28)
-            return eigenvectors, eigenvalues
+        jac = jacobian2D(output_simec, input_simec)
+        jac_t = jac.permute(-1, -2, -3, -4)
+        eigenvalues, eigenvectors = [], []
+        for h in range(jac.size(0)):
+            for w in range(jac.size(1)):
+                tmp = torch.mm(jac[h, w], g)
+                if device.type == "mps":
+                    pullback_metric = torch.mm(tmp, jac_t[:, :, w, h]).type(
+                        torch.float32
+                    )
+                    eigenvalues.append()
+                else:
+                    pullback_metric = torch.mm(tmp, jac_t[:, :, w, h]).type(
+                        torch.double
+                    )
+                # Compute eigenvalues and eigenvectors
+                values, vectors = torch.linalg.eigh(pullback_metric, UPLO="U")
+                eigenvalues.append(values)
+                eigenvectors.append(vectors)
+        eigenvectors = torch.stack(eigenvectors, dim=0).reshape(28, 28, 28, 28)
+        eigenvalues = torch.stack(eigenvalues, dim=0).reshape(28, 28, 28)
+        return eigenvectors, eigenvalues
 
-    # fname = img_out_dir + "start.png"
     image = starting_img.squeeze().cpu().detach().numpy()
     _, ax = plt.subplots()
     ax.imshow(image, cmap="gray")
-    # plt.savefig(fname)
-    # plt.clf()
 
     # define decoder to plot images from embeddings
     decoder = PatchDecoder(
@@ -163,17 +141,10 @@ def simec_vit(
     output_decoder = decoder(model.embedding(starting_img.requires_grad_(True)))
     g = torch.eye(output_decoder.shape[-1])  # , output_emb.shape[-2] - 1)
     eigenvectors_decoder, _ = simec(
-        input_simec=starting_img,
-        output_simec=output_decoder.squeeze(),
-        select_patch=False,
+        input_simec=starting_img, output_simec=output_decoder.squeeze()
     )
 
-    # Clone and require gradient of the embedded input and prepare for the first iteration
-    emb_inp_simec = model.embedding(starting_img).requires_grad_(True)
-
-    # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    embedding_dimension = emb_inp_simec.shape[-1]
-    g = torch.eye(embedding_dimension)
+    emb_inp_simec = model.embedding(starting_img)
 
     # Plot embeddings as image with decoder
     image_emb_inp_simec = decoder(emb_inp_simec.clone()).squeeze().type(torch.double)
@@ -187,22 +158,132 @@ def simec_vit(
             eigevec_inverse = torch.inverse(eigevec)
             basis_change = torch.mm(eigevec_inverse, image_emb_inp_simec)
             basis_change = torch.mm(basis_change, eigevec)
-            # fname = img_out_dir + ".png"
-        image = basis_change.squeeze().cpu().detach().numpy()
-        _, ax = plt.subplots()
-        ax.imshow(image, cmap="gray")
-        # plt.savefig(fname)
-        # plt.clf()
+    image = basis_change.squeeze().cpu().detach().numpy()
+    _, ax = plt.subplots()
+    ax.imshow(image, cmap="gray")
+
+    # TODO pullback metric for reconstructing difference in input image manifold
+
+
+def simec_feature_importance_vit(
+    model,
+    starting_img,
+    patch_size,
+    device,
+    threshold=1e-2,
+):
+    def simec(input_simec, output_simec, patch_id):
+        # Compute the pullback metric
+        jac = jacobian(output_simec, input_simec)[patch_id]
+        jac_t = torch.transpose(jac, -2, -1)
+        tmp = torch.mm(jac, g)
+        if device.type == "mps":
+            # mps doen't support float64, must convert in float32
+            pullback_metric = torch.mm(tmp, jac_t).type(torch.float32)
+        else:
+            # The conversion to double is done in order to avoid the following error:
+            # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
+            pullback_metric = torch.mm(tmp, jac_t).type(torch.double)
+        return torch.linalg.eigh(pullback_metric, UPLO="U")
+
+    # Clone and require gradient of the embedded input and prepare for the first iteration
+    emb_inp_simec = model.embedding(starting_img).requires_grad_(True)
+
+    # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
+    g = torch.eye(emb_inp_simec.shape[-1])
 
     # Compute the output of the encoder. This is the output which we want to keep constant
     encoder_output = model.encoder(emb_inp_simec)[0]
+
+    for p in range(model.embeddings.patch_embeddings.num_patches):
+        # simec --------------------------------------------------------------
+        eigenvalues, eigenvectors = simec(
+            output_simec=encoder_output[0, 0],
+            input_simec=emb_inp_simec,
+            patch_id=p,
+        )
+
+    eigenvalues = eigenvalues[eigenvalues < threshold]
+    eigenvectors = eigenvectors[: len(eigenvalues)]
+
+    image = starting_img.squeeze().cpu().detach().numpy()
+    _, ax = plt.subplots()
+    ax.imshow(image, cmap="gray")
+    ax.add_patch(
+        Rectangle(
+            tuple(
+                (
+                    np.array(
+                        np.unravel_index(
+                            eq_class_patch_id,
+                            (28 // patch_size, 28 // patch_size),
+                        )
+                    )
+                    * patch_size
+                )
+                + np.array([-0.5, -0.5])
+            )[::-1],
+            patch_size,
+            patch_size,
+            linewidth=1,
+            edgecolor="r",
+            facecolor="none",
+        )
+    )
+
+
+def simec_vit(
+    model,
+    starting_img,
+    n_iterations,
+    eq_class_patch_id,
+    patch_size,
+    device,
+    delta=5e-2,
+    threshold=1e-2,
+    print_every_n_iter=100,
+    img_out_dir=".",
+):
+    def simec(input_simec, output_simec, patch_id):
+        # Compute the pullback metric
+        jac = jacobian(output_simec, input_simec)[patch_id]
+        jac_t = torch.transpose(jac, -2, -1)
+        tmp = torch.mm(jac, g)
+        if device.type == "mps":
+            # mps doen't support float64, must convert in float32
+            pullback_metric = torch.mm(tmp, jac_t).type(torch.float32)
+        else:
+            # The conversion to double is done in order to avoid the following error:
+            # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
+            pullback_metric = torch.mm(tmp, jac_t).type(torch.double)
+        return torch.linalg.eigh(pullback_metric, UPLO="U")
+
+    # Clone and require gradient of the embedded input and prepare for the first iteration
+    emb_inp_simec = model.embedding(starting_img).requires_grad_(True)
+
+    # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
+    g = torch.eye(emb_inp_simec.shape[-1])
+
+    # Compute the output of the encoder. This is the output which we want to keep constant
+    encoder_output = model.encoder(emb_inp_simec)[0]
+
+    # define decoder to plot images from embeddings
+    decoder = PatchDecoder(
+        image_size=model.image_size,
+        patch_size=patch_size,
+        num_channels=starting_img.shape[1],
+        hidden_size=model.hidden_size,
+        positional_embeddings=model.embedding.position_embeddings,
+    )
 
     # Keep track of the length of the polygonal
     distance = 0.0
     for i in range(n_iterations):
         # simec --------------------------------------------------------------
         eigenvalues, eigenvectors = simec(
-            output_simec=encoder_output[0, 0], input_simec=emb_inp_simec
+            output_simec=encoder_output[0, 0],
+            input_simec=emb_inp_simec,
+            patch_id=eq_class_patch_id,
         )
 
         # random walk step ---------------------------------------------------
@@ -233,13 +314,8 @@ def simec_vit(
             print("Length of the polygonal:", distance)
             print(eigenvalues[id_eigen])
             print("-------------------------------------------------")
-            fname = img_out_dir + str(int(i / print_every_n_iter)) + ".png"
-
-            image = emb_inp_simec - model.embedding.position_embeddings
-            image = image[:, 1:, :].transpose(1, 2).reshape(1, 48, 14, 14)
-            image = decoder(image)
-            image = starting_img + image_emb_inp_simec - image
-            image = image.squeeze().cpu().detach().numpy()
+            # fname = img_out_dir + str(int(i / print_every_n_iter)) + ".png"
+            image = decoder(emb_inp_simec).squeeze().cpu().detach().numpy()
             _, ax = plt.subplots()
             ax.imshow(image, cmap="gray")
             ax.add_patch(
@@ -263,8 +339,6 @@ def simec_vit(
                     facecolor="none",
                 )
             )
-            plt.savefig(fname)
-            plt.clf()
 
 
 def parse_args():
@@ -320,15 +394,24 @@ def main():
     # take first image keeping batch dimension
     img = imgs[0].unsqueeze(0)
 
-    simec_vit(
-        model=model,
-        starting_img=img,
-        n_iterations=iterations,
-        eq_class_patch_id=eq_class_patch,
-        patch_size=patch_size,
-        device=device,
-        img_out_dir=os.path.join(out_dir, experiment_name),
-    )
+    if False:
+        simec_vit(
+            model=model,
+            starting_img=img,
+            n_iterations=iterations,
+            eq_class_patch_id=eq_class_patch,
+            patch_size=patch_size,
+            device=device,
+            img_out_dir=os.path.join(out_dir, experiment_name),
+        )
+
+    if True:
+        simec_feature_importance_vit(
+            model=model,
+            starting_img=img,
+            patch_size=patch_size,
+            device=device,
+        )
 
 
 if __name__ == "__main__":
