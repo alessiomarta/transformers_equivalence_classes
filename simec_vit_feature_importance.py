@@ -238,9 +238,9 @@ def simec_vit(
     eq_class_patch_id,
     patch_size,
     device,
-    delta=5e-2,
+    delta=9e-2,
     threshold=1e-2,
-    print_every_n_iter=100,
+    print_every_n_iter=2,
     img_out_dir=".",
 ):
     def simec(input_simec, output_simec, patch_id):
@@ -293,8 +293,13 @@ def simec_vit(
         number_null_eigenvalues = torch.count_nonzero(zero_eigenvalues)
         id_eigen = torch.randint(0, number_null_eigenvalues, (1,)).item()
         null_vec = eigenvectors[:, id_eigen].type(torch.float)
-        # Proceeed along a null direction
+
+        old_embedding = emb_inp_simec.clone().detach()
+        old_embedding[old_embedding < -1.0] = -1.0
+        old_embedding[old_embedding > 1.0] = 1.0
+
         emb_inp_simec = emb_inp_simec.detach()
+        # Proceeed along a null direction
         emb_inp_simec[0, eq_class_patch_id] = (
             emb_inp_simec[0, eq_class_patch_id] + null_vec * delta
         )
@@ -305,25 +310,22 @@ def simec_vit(
         clamp_upper = emb_inp_simec > 1.0
         emb_inp_simec[clamp_upper] = 1.0
 
-        # Prepare for the next iteration.
-        emb_inp_simec = emb_inp_simec.requires_grad_(True)
-        encoder_output = model.encoder(emb_inp_simec)[0]
-
         if i % print_every_n_iter == 0:
             print("Length of the polygonal:", distance)
             print(eigenvalues[id_eigen])
             print("-------------------------------------------------")
             # fname = img_out_dir + str(int(i / print_every_n_iter)) + ".png"
-            image = decoder(emb_inp_simec).squeeze().cpu().detach().numpy()
+            difference = decoder(old_embedding - emb_inp_simec.requires_grad_(False))
+            image = decoder(emb_inp_simec.requires_grad_(False))
             _, ax = plt.subplots()
-            ax.imshow(image, cmap="gray")
+            ax.imshow(difference.squeeze().cpu().detach().numpy(), cmap="gray")
             ax.add_patch(
                 Rectangle(
                     tuple(
                         (
                             np.array(
                                 np.unravel_index(
-                                    eq_class_patch_id,
+                                    eq_class_patch_id - 1,
                                     (28 // patch_size, 28 // patch_size),
                                 )
                             )
@@ -339,6 +341,10 @@ def simec_vit(
                 )
             )
 
+        # Prepare for the next iteration.
+        emb_inp_simec = emb_inp_simec.requires_grad_(True)
+        encoder_output = model.encoder(emb_inp_simec)[0]
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -346,7 +352,7 @@ def parse_args():
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
-    parser.add_argument("--which-patch", type=int, default=0)
+    parser.add_argument("--which-patch", type=int, default=1)
     parser.add_argument("--iter", type=int, default=10)
     parser.add_argument("--img-path", type=str)
     parser.add_argument("--device", type=str)
@@ -393,23 +399,21 @@ def main():
     # take first image keeping batch dimension
     img = imgs[0].unsqueeze(0)
 
-    if False:
-        simec_vit(
-            model=model,
-            starting_img=img,
-            n_iterations=iterations,
-            eq_class_patch_id=eq_class_patch,
-            patch_size=patch_size,
-            device=device,
-            img_out_dir=os.path.join(out_dir, experiment_name),
-        )
+    simec_vit(
+        model=model,
+        starting_img=img,
+        n_iterations=iterations,
+        eq_class_patch_id=eq_class_patch,
+        patch_size=patch_size,
+        device=device,
+        img_out_dir=os.path.join(out_dir, experiment_name),
+    )
 
-    if True:
-        simec_feature_importance_vit(
-            model=model,
-            starting_img=img,
-            device=device,
-        )
+    simec_feature_importance_vit(
+        model=model,
+        starting_img=img,
+        device=device,
+    )
 
 
 if __name__ == "__main__":
