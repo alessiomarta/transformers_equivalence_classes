@@ -1,12 +1,15 @@
 import argparse, os, json
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import torch
 import torch.nn as nn
 from matplotlib.patches import Rectangle
+from tqdm import tqdm
 from jacobian_function import jacobian, jacobian2D
 from data import prepare_data
 from vit import ViTForClassfication
+
 
 # The operator 'aten::_linalg_eigh.eigenvalues' is not currently
 # implemented for the MPS device. If you want this op to be added
@@ -168,9 +171,7 @@ def simec_decoder(
 def simec_feature_importance_vit(
     model,
     starting_img,
-    patch_size,
     device,
-    threshold=1e-2,
 ):
     def simec(input_simec, output_simec, patch_id):
         # Compute the pullback metric
@@ -195,41 +196,39 @@ def simec_feature_importance_vit(
     # Compute the output of the encoder. This is the output which we want to keep constant
     encoder_output = model.encoder(emb_inp_simec)[0]
 
-    for p in range(model.embeddings.patch_embeddings.num_patches):
-        # simec --------------------------------------------------------------
-        eigenvalues, eigenvectors = simec(
+    max_eigenvalues = []
+    for p in tqdm(range(encoder_output.size(1))):
+        eigenvalues, _ = simec(
             output_simec=encoder_output[0, 0],
             input_simec=emb_inp_simec,
             patch_id=p,
         )
-
-    eigenvalues = eigenvalues[eigenvalues < threshold]
-    eigenvectors = eigenvectors[: len(eigenvalues)]
-
-    image = starting_img.squeeze().cpu().detach().numpy()
-    _, ax = plt.subplots()
-    ax.imshow(image, cmap="gray")
-    ax.add_patch(
-        Rectangle(
-            tuple(
-                (
-                    np.array(
-                        np.unravel_index(
-                            eq_class_patch_id,
-                            (28 // patch_size, 28 // patch_size),
-                        )
-                    )
-                    * patch_size
-                )
-                + np.array([-0.5, -0.5])
-            )[::-1],
-            patch_size,
-            patch_size,
-            linewidth=1,
-            edgecolor="r",
-            facecolor="none",
-        )
+        max_eigenvalues.append(torch.max(eigenvalues))
+    first_col_cls = torch.zeros(starting_img.size(-1))
+    first_col_cls[0] = max_eigenvalues.pop(0)
+    max_eigenvalues = (
+        torch.stack(max_eigenvalues)
+        .reshape(14, 14)
+        .repeat_interleave(2, dim=0)
+        .repeat_interleave(2, dim=1)
     )
+    max_eigenvalues = torch.concat([first_col_cls.unsqueeze(0), max_eigenvalues], dim=0)
+    fig, ax = plt.subplots()
+    ax.imshow(starting_img.squeeze().cpu().detach().numpy() * (-1), cmap="gray")
+    custom_cmap = LinearSegmentedColormap.from_list(
+        "white_to_pink", ["white", "mediumvioletred"]
+    )
+    colors = custom_cmap(np.arange(256))
+    # Modify alpha values linearly across the colormap
+    alphas = np.linspace(0, 0.9, 256)
+    colors[:, -1] = alphas  # Replace the alpha channel with the new alpha values
+    alpha_cmap = LinearSegmentedColormap.from_list("alpha_cmap", colors, N=256)
+    feature_importance = ax.imshow(
+        max_eigenvalues.squeeze().cpu().detach().numpy(), cmap=alpha_cmap
+    )
+    cbar = fig.colorbar(feature_importance, ax=ax)
+    cbar.set_label("Eigenvalues")
+    plt.show()
 
 
 def simec_vit(
@@ -409,7 +408,6 @@ def main():
         simec_feature_importance_vit(
             model=model,
             starting_img=img,
-            patch_size=patch_size,
             device=device,
         )
 
