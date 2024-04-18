@@ -57,6 +57,39 @@ class PatchEmbeddings(nn.Module):
         return x
 
 
+class Patcher(nn.Module):
+    """
+    Divide an image into non-overlapping patches using PyTorch.
+
+    Args:
+    image (Tensor): The input image tensor of shape (C, H, W).
+    patch_size (int): The size of each patch (patch_size x patch_size).
+
+    Returns:
+    Tensor: Patches as a tensor.
+    """
+
+    def __init__(self, config):
+        super().__init__()
+        self.image_size = config["image_size"]
+        self.num_channels = config["num_channels"]
+        self.patch_size = config["patch_size"]
+        self.num_patches = (self.image_size // self.patch_size) ** 2
+
+    def forward(self, x):
+        batch_size = x.size(0)
+        # Unfold along height and then width and then reshape to have all patches lined up along one dimension
+        x = (
+            x.unfold(2, self.patch_size, self.patch_size)
+            .unfold(3, self.patch_size, self.patch_size)
+            .contiguous()
+            .view(batch_size, self.num_channels, -1, self.patch_size, self.patch_size)
+            .permute(0, 2, 3, 4, 1)
+            .flatten(2)
+        )
+        return x
+
+
 class Embeddings(nn.Module):
     """
     Combine the patch embeddings with the class token and position embeddings.
@@ -65,7 +98,14 @@ class Embeddings(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.patch_embeddings = PatchEmbeddings(config)
+        self.image_size = config["image_size"]
+        self.patch_size = config["patch_size"]
+        self.num_patches = (self.image_size // self.patch_size) ** 2
+        # self.patch_embeddings = PatchEmbeddings(config)
+        self.patch_embeddings = nn.Linear(
+            config["num_channels"] * self.patch_size * self.patch_size,
+            config["hidden_size"],
+        )
         # Create a learnable [CLS] token
         # Similar to BERT, the [CLS] token is added to the beginning of the input sequence
         # and is used to classify the entire sequence
@@ -73,13 +113,14 @@ class Embeddings(nn.Module):
         # Create position embeddings for the [CLS] token and the patch embeddings
         # Add 1 to the sequence length for the [CLS] token
         self.position_embeddings = nn.Parameter(
-            torch.randn(1, self.patch_embeddings.num_patches + 1, config["hidden_size"])
+            torch.randn(1, self.num_patches + 1, config["hidden_size"])
         )
         self.dropout = nn.Dropout(config["hidden_dropout_prob"])
 
     def forward(self, x):
+        batch_size = x.size(0)
         x = self.patch_embeddings(x)
-        batch_size, _, _ = x.size()
+
         # Expand the [CLS] token to the batch size
         # (1, 1, hidden_size) -> (batch_size, 1, hidden_size)
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
@@ -258,6 +299,7 @@ class ViTForClassfication(nn.Module):
         self.image_size = config["image_size"]
         self.hidden_size = config["hidden_size"]
         self.num_classes = config["num_classes"]
+        self.patcher = Patcher(config)
         # Create the embedding module
         self.embedding = Embeddings(config)
         # Create the transformer encoder module
@@ -268,6 +310,8 @@ class ViTForClassfication(nn.Module):
         self.apply(self._init_weights)
 
     def forward(self, x, output_attentions=False):
+        # divide in patches
+        x = self.patcher(x)
         # Calculate the embedding output
         embedding_output = self.embedding(x)
         # Calculate the encoder's output
@@ -304,3 +348,11 @@ class ViTForClassfication(nn.Module):
                 mean=0.0,
                 std=self.config["initializer_range"],
             ).to(module.cls_token.dtype)
+
+            torch.nn.init.normal_(
+                module.patch_embeddings.weight,
+                mean=0.0,
+                std=self.config["initializer_range"],
+            )
+            if module.patch_embeddings.bias is not None:
+                torch.nn.init.zeros_(module.patch_embeddings.bias)
