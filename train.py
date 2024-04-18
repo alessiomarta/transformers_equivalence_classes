@@ -5,7 +5,7 @@ from torchvision import datasets, transforms
 
 CONFIG = {
     "patch_size": 2,
-    "hidden_size": 4,
+    "hidden_size": 48,
     "num_hidden_layers": 4,
     "num_attention_heads": 4,
     "intermediate_size": 4 * 48,
