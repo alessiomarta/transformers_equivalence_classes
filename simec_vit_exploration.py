@@ -27,17 +27,16 @@ def simec_vit(
     model,
     starting_img,
     n_iterations,
-    eq_class_patch_id,
-    patch_size,
+    eq_class_patch_ids,
     device,
     delta=9e-1,
     threshold=1e-2,
     print_every_n_iter=4,
     img_out_dir=".",
 ):
-    def simec(input_simec, output_simec, patch_id):
+    def simec(input_simec, output_simec, eq_class_patch_ids):
         # Compute the pullback metric
-        jac = jacobian(output_simec, input_simec)
+        jac = jacobian(output_simec, input_simec)[eq_class_patch_ids]
         jac_t = torch.transpose(jac, -2, -1)
         tmp = torch.bmm(jac, g)
         if device.type == "mps":
@@ -56,11 +55,7 @@ def simec_vit(
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
 
-    g = (
-        torch.eye(model.hidden_size)
-        .unsqueeze(0)
-        .repeat(model.embedding.num_patches + 1, 1, 1)
-    )
+    g = torch.eye(model.hidden_size).unsqueeze(0).repeat(len(eq_class_patch_ids), 1, 1)
 
     # Compute the output of the encoder. This is the output which we want to keep constant
     encoder_output = model.encoder(emb_inp_simec)[0]
@@ -68,18 +63,18 @@ def simec_vit(
     # define decoder to plot images from embeddings
     decoder = PatchDecoder(
         image_size=model.image_size,
-        patch_size=patch_size,
+        patch_size=model.embedding.patch_size,
         model_embedding_layer=model.embedding,
     )
 
     # Keep track of the length of the polygonal
-    distance = torch.zeros(model.embedding.num_patches + 1)
+    distance = torch.zeros(len(eq_class_patch_ids))
     for i in range(n_iterations):
         # simec --------------------------------------------------------------
         eigenvalues, eigenvectors = simec(
             output_simec=encoder_output[0, 0],
             input_simec=emb_inp_simec,
-            patch_id=eq_class_patch_id,
+            eq_class_patch_ids=eq_class_patch_ids,
         )
 
         # random walk step ---------------------------------------------------
@@ -101,7 +96,9 @@ def simec_vit(
 
         with torch.no_grad():
             # Proceeed along a null direction
-            emb_inp_simec[0] = emb_inp_simec[0] + null_vecs * delta
+            emb_inp_simec[0, eq_class_patch_ids] = (
+                emb_inp_simec[0, eq_class_patch_ids] + null_vecs * delta
+            )
             distance += zero_eigenvals * delta
             # Clamp the tensor in [-1,1].
             # emb_inp_simec[emb_inp_simec < -1.0] = -1.0
@@ -111,7 +108,7 @@ def simec_vit(
 
             if i % print_every_n_iter == 0:
                 print("Length of the polygonal:", distance)
-                print(eigenvalues[id_eigen])
+                print(eigenvalues[:, id_eigen])
                 fname = os.path.join(
                     img_out_dir, str(int(i / print_every_n_iter)) + ".png"
                 )
@@ -119,6 +116,29 @@ def simec_vit(
                 print("-------------------------------------------------")
                 _, ax = plt.subplots()
                 ax.imshow(image.squeeze().cpu().numpy(), cmap="gray", norm=norm)
+                for p in eq_class_patch_ids:
+                    image_index = (
+                        np.array(
+                            np.unravel_index(
+                                p - 1,
+                                (
+                                    28 // model.embedding.patch_size,
+                                    28 // model.embedding.patch_size,
+                                ),
+                            )
+                        )
+                        * model.embedding.patch_size
+                    )[::-1]
+                    ax.add_patch(
+                        Rectangle(
+                            tuple(image_index + np.array([-0.5, -0.5])),
+                            model.embedding.patch_size,
+                            model.embedding.patch_size,
+                            linewidth=1,
+                            edgecolor="r",
+                            facecolor="none",
+                        )
+                    )
                 if not os.path.exists(img_out_dir):
                     os.makedirs(img_out_dir)
                 plt.savefig(fname)
@@ -164,13 +184,11 @@ def main():
     # MNIST data
     trainloader, _ = prepare_data(test=False)
 
-    model, model_config = load_model(
+    model, _ = load_model(
         model_path=model_path,
         config_path=config_path,
         device=device,
     )
-
-    patch_size = model_config["patch_size"]
 
     deactivate_dropout_layers(model)
 
@@ -184,8 +202,7 @@ def main():
         model=model,
         starting_img=img,
         n_iterations=iterations,
-        eq_class_patch_id=eq_class_patch,
-        patch_size=patch_size,
+        eq_class_patch_ids=torch.randint(1, 197, (10,)).tolist(),
         device=device,
         img_out_dir=os.path.join(
             out_dir,
