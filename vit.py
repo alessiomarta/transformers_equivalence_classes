@@ -71,22 +71,14 @@ class Patcher(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.image_size = config["image_size"]
-        self.num_channels = config["num_channels"]
         self.patch_size = config["patch_size"]
-        self.num_patches = (self.image_size // self.patch_size) ** 2
+        self.unfold = nn.Unfold(
+            kernel_size=(self.patch_size, self.patch_size), stride=self.patch_size
+        )
 
     def forward(self, x):
-        batch_size = x.size(0)
         # Unfold along height and then width and then reshape to have all patches lined up along one dimension
-        x = (
-            x.unfold(2, self.patch_size, self.patch_size)
-            .unfold(3, self.patch_size, self.patch_size)
-            .contiguous()
-            .view(batch_size, self.num_channels, -1, self.patch_size, self.patch_size)
-            .permute(0, 2, 3, 4, 1)
-            .flatten(2)
-        )
+        x = self.unfold(x).permute(0, 2, 1).contiguous()
         return x
 
 
