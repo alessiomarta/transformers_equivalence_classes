@@ -1,10 +1,9 @@
 import argparse
 import os
 import time
-from tqdm import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, Normalize
+from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
 from jacobian_function import jacobian
