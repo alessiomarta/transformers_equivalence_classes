@@ -23,38 +23,41 @@ from utils import prepare_data, deactivate_dropout_layers, load_model
 
 
 def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
-    def simec(input_simec, output_simec, patch_id):
+    def simec(input_simec, output_simec):
         # Compute the pullback metric
-        jac = jacobian(output_simec, input_simec)[patch_id]
+        jac = jacobian(output_simec, input_simec)
         jac_t = torch.transpose(jac, -2, -1)
-        tmp = torch.mm(jac, g)
+        tmp = torch.bmm(jac, g)
         if device.type == "mps":
             # mps doen't support float64, must convert in float32
-            pullback_metric = torch.mm(tmp, jac_t).type(torch.float32)
+            pullback_metric = torch.bmm(tmp, jac_t).type(torch.float32)
         else:
             # The conversion to double is done in order to avoid the following error:
             # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
-            pullback_metric = torch.mm(tmp, jac_t).type(torch.double)
+            pullback_metric = torch.bmm(tmp, jac_t).type(torch.double)
         return torch.linalg.eigh(pullback_metric, UPLO="U")
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     emb_inp_simec = model.embedding(model.patcher(starting_img)).requires_grad_(True)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    g = torch.eye(emb_inp_simec.shape[-1])
+    g = (
+        torch.eye(model.hidden_size)
+        .unsqueeze(0)
+        .repeat(model.embedding.num_patches + 1, 1, 1)
+    )
 
     # Compute the output of the encoder. This is the output which we want to keep constant
     encoder_output = model.encoder(emb_inp_simec)[0]
 
     max_eigenvalues = []
-    # TODO farlo contemporaneamente facendo tuttle la patches assieme
-    for p in tqdm(range(encoder_output.size(1))):
-        eigenvalues, _ = simec(
-            output_simec=encoder_output[0, 0],
-            input_simec=emb_inp_simec,
-            patch_id=p,
-        )
-        max_eigenvalues.append(torch.max(eigenvalues))
+    eigenvalues, _ = simec(
+        output_simec=encoder_output[0, 0],
+        input_simec=emb_inp_simec,
+    )
+    max_eigenvalues = [
+        torch.tensor(v) for v in torch.max(eigenvalues, dim=1).values.tolist()
+    ]
     first_col_cls = torch.zeros(starting_img.size(-1))
     first_col_cls[0] = max_eigenvalues.pop(0)
     max_eigenvalues = (
