@@ -22,21 +22,6 @@ from vit import ViTForClassfication
 # eigenvalues, eigenvectors = torch.linalg.eigh(pullback_metric, UPLO="U")
 # export PYTORCH_ENABLE_MPS_FALLBACK=1
 
-CONFIG = {
-    "patch_size": 2,
-    "hidden_size": 48,
-    "num_hidden_layers": 4,
-    "num_attention_heads": 4,
-    "intermediate_size": 4 * 48,
-    "hidden_dropout_prob": 0.01,
-    "attention_probs_dropout_prob": 0.01,
-    "initializer_range": 0.02,
-    "image_size": 28,
-    "num_classes": 10,
-    "num_channels": 1,
-    "qkv_bias": True,
-}
-
 
 class PatchDecoder(nn.Module):
     """
@@ -75,16 +60,23 @@ class PatchDecoder(nn.Module):
         return x
 
 
-def load_model(fname, device):
+def load_config(config_path):
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    return config
+
+
+def load_model(model_path, config_path, device):
     if device.type == "cpu":
-        checkpoint = torch.load(fname, map_location=torch.device("cpu"))
+        checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
     elif device.type == "mps":
-        checkpoint = torch.load(fname, map_location=torch.device("mps"))
+        checkpoint = torch.load(model_path, map_location=torch.device("mps"))
     else:
-        checkpoint = torch.load(fname)
-    model = ViTForClassfication(CONFIG)
+        checkpoint = torch.load(model_path)
+    config = load_config(config_path)
+    model = ViTForClassfication(config)
     model.load_state_dict(checkpoint)
-    return model
+    return model, config
 
 
 def deactivate_dropout_layers(model):
@@ -188,7 +180,7 @@ def simec_feature_importance_vit(
         return torch.linalg.eigh(pullback_metric, UPLO="U")
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
-    emb_inp_simec = model.embedding(starting_img).requires_grad_(True)
+    emb_inp_simec = model.embedding(model.patcher(starting_img)).requires_grad_(True)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = torch.eye(emb_inp_simec.shape[-1])
@@ -381,13 +373,11 @@ def main():
     # MNIST data
     trainloader, _ = prepare_data(test=False)
 
-    model = load_model(
-        fname=model_path,
+    model, model_config = load_model(
+        model_path=model_path,
+        config_path=config_path,
         device=device,
     )
-
-    with open(config_path, "r") as c:
-        model_config = json.load(c)
 
     patch_size = model_config["patch_size"]
 
