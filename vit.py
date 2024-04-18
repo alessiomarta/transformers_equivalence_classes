@@ -6,6 +6,41 @@ import torch
 import torch.nn as nn
 
 
+class PatchDecoder(nn.Module):
+    """
+    Convert the embeddings so that they can be displayed as images
+    """
+
+    def __init__(self, image_size, patch_size, model_embedding_layer=None):
+        super().__init__()
+        self.image_size = image_size
+        self.patch_size = patch_size
+        self.fold = nn.Fold(
+            kernel_size=(self.patch_size, self.patch_size),
+            stride=self.patch_size,
+            output_size=(self.image_size, self.image_size),
+        )
+        if model_embedding_layer:
+            self.position_embeddings = model_embedding_layer.position_embeddings
+            self.psudo_inverse_weights = torch.pinverse(
+                model_embedding_layer.patch_embeddings.weight
+            )
+            self.bias = model_embedding_layer.patch_embeddings.bias
+
+    def forward(self, x):
+        if hasattr(self, "psudo_inverse_weights"):
+            x = (x - self.position_embeddings)[:, 1:, :]
+            x = (x - self.bias) @ self.psudo_inverse_weights.transpose(1, 0)
+            # reverting the operations done by Patcher
+            x = self.fold(x.permute(0, 2, 1))
+        else:
+            num_patches = (self.image_size // self.patch_size) ** 2
+            if x.size(1) != num_patches:
+                x = x[:, 1:, :]
+            x = self.fold(x.permute(0, 2, 1))
+        return x
+
+
 class NewGELUActivation(nn.Module):
     """
     Implementation of the GELU activation function currently in Google BERT repo (identical to OpenAI GPT). Also see
@@ -28,6 +63,7 @@ class NewGELUActivation(nn.Module):
         )
 
 
+# old
 class PatchEmbeddings(nn.Module):
     """
     Convert the image into patches and then project them into a vector space.

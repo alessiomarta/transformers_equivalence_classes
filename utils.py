@@ -1,5 +1,7 @@
+import json
 import torch
 from torchvision import datasets, transforms
+from vit import ViTForClassfication
 
 
 def prepare_data(
@@ -44,3 +46,31 @@ def prepare_data(
         return trainloader, testloader, classes
 
     return trainloader, classes
+
+
+def load_config(config_path):
+    with open(config_path, "r") as f:
+        config = json.load(f)
+    return config
+
+
+def load_model(model_path, config_path, device):
+    if device.type == "cpu":
+        checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
+    elif device.type == "mps":
+        checkpoint = torch.load(model_path, map_location=torch.device("mps"))
+    else:
+        checkpoint = torch.load(model_path)
+    config = load_config(config_path)
+    model = ViTForClassfication(config)
+    model.load_state_dict(checkpoint)
+    return model, config
+
+
+def deactivate_dropout_layers(model):
+    """Deactivate the dropout layers of the model after training."""
+    model.embedding.dropout.p = 0.0
+    for block in model.encoder.blocks:
+        block.attention.attn_dropout.p = 0.0
+        block.attention.output_dropout.p = 0.0
+        block.mlp.dropout.p = 0.0
