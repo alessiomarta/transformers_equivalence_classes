@@ -47,6 +47,7 @@ def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
     encoder_output = model.encoder(emb_inp_simec)[0]
 
     max_eigenvalues = []
+    # TODO farlo contemporaneamente facendo tuttle la patches assieme
     for p in tqdm(range(encoder_output.size(1))):
         eigenvalues, _ = simec(
             output_simec=encoder_output[0, 0],
