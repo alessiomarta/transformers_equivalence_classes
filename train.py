@@ -2,13 +2,10 @@ import time, json, os, argparse
 import torch
 from torchvision import datasets, transforms
 
-from vit import ViTForClassfication
-from data import prepare_data
-
 
 CONFIG = {
     "patch_size": 2,
-    "hidden_size": 48,
+    "hidden_size": 4,
     "num_hidden_layers": 4,
     "num_attention_heads": 4,
     "intermediate_size": 4 * 48,
@@ -29,7 +26,7 @@ def save_experiment(
     train_losses,
     test_losses,
     accuracies,
-    base_dir="experiments",
+    base_dir="/content/drive/MyDrive/mnist_experiments",
 ):
     outdir = os.path.join(base_dir, experiment_name)
     os.makedirs(outdir, exist_ok=True)
@@ -53,7 +50,9 @@ def save_experiment(
     save_checkpoint(experiment_name, model, "final", base_dir=base_dir)
 
 
-def save_checkpoint(experiment_name, model, epoch, base_dir="experiments"):
+def save_checkpoint(
+    experiment_name, model, epoch, base_dir="/content/drive/MyDrive/mnist_experiments"
+):
     outdir = os.path.join(base_dir, experiment_name)
     os.makedirs(outdir, exist_ok=True)
     cpfile = os.path.join(outdir, f"model_{epoch}.pt")
@@ -160,41 +159,70 @@ class Trainer:
         return accuracy, avg_loss
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-name", type=str, required=True)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=1e-2)
-    parser.add_argument("--device", type=str)
-    parser.add_argument("--save-model-every", type=int, default=0)
+def prepare_data(
+    batch_size=128, num_workers=2, train_sample_size=None, test_sample_size=None
+):
+    mean, std = (0.5,), (0.5,)
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+    )
 
-    args = parser.parse_args()
-    if args.device is None:
-        if torch.backends.mps.is_available():
-            args.device = torch.device("mps")
-        else:
-            args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return args
+    trainset = datasets.MNIST(
+        root="/content/drive/MyDrive/mnist_data",
+        download=True,
+        train=True,
+        transform=transform,
+    )
+
+    if train_sample_size is not None:
+        # Randomly sample a subset of the training set
+        indices = torch.randperm(len(trainset))[:train_sample_size]
+        trainset = torch.utils.data.Subset(trainset, indices)
+
+    trainloader = torch.utils.data.DataLoader(
+        trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
+
+    testset = datasets.MNIST(
+        root="/content/drive/MyDrive/mnist_data",
+        download=True,
+        train=False,
+        transform=transform,
+    )
+
+    if test_sample_size is not None:
+        # Randomly sample a subset of the test set
+        indices = torch.randperm(len(testset))[:test_sample_size]
+        testset = torch.utils.data.Subset(testset, indices)
+
+    testloader = torch.utils.data.DataLoader(
+        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
+
+    classes = tuple(range(10))
+
+    return trainloader, testloader, classes
 
 
-def main():
-    args = parse_args()
+def main(args, model_path=None):
     # Training parameters
-    batch_size = args.batch_size
-    epochs = args.epochs
-    lr = args.lr
-    device = args.device
-    save_model_every_n_epochs = args.save_model_every
+    batch_size = args["batch_size"]
+    epochs = args["epochs"]
+    lr = args["lr"]
+    device = args["device"]
+    save_model_every_n_epochs = args["save_model_every"]
     # Load the MNIST dataset
     print("Preparing data ...")
     trainloader, testloader, _ = prepare_data(batch_size=batch_size)
     # Create the model, optimizer, loss function and trainer
     print("Creating the model, optimizer, loss function and trainer ...")
     model = ViTForClassfication(CONFIG)
+    if model_path is not None:
+        checkpoint = torch.load(model_path)
+        model.load_state_dict(checkpoint)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-2)
     loss_fn = torch.nn.CrossEntropyLoss()
-    trainer = Trainer(model, optimizer, loss_fn, args.exp_name, device=device)
+    trainer = Trainer(model, optimizer, loss_fn, args["exp_name"], device=device)
     print("Training starts!")
     trainer.train(
         trainloader,
@@ -203,7 +231,3 @@ def main():
         save_model_every_n_epochs=save_model_every_n_epochs,
         measure_time=True,
     )
-
-
-if __name__ == "__main__":
-    main()
