@@ -1,90 +1,9 @@
-import string
 import torch
-from transformers import BertTokenizer, BertForMaskedLM
 from jacobian_function import jacobian
-
-# Select the device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from utils import load_bert_model, get_allowed_tokens
 
 
-# -----------------------------------------------------------------------------------------
-
-
-def load_model(model_name):
-    """Load pre-trained model (either bert-base or bert-mini)
-
-    Args:
-        model_name: Either "bert-base" (768-d embedding space) or "bert-mini" (256-d embedding space).
-
-    Returns:
-        The loaded model.
-    """
-    try:
-        if model_name.lower() == "bert-mini":
-            bert_tokenizer = BertTokenizer.from_pretrained("prajjwal1/bert-mini")
-            bert_model = BertForMaskedLM.from_pretrained("prajjwal1/bert-mini").eval()
-            return bert_tokenizer, bert_model
-        if model_name.lower() == "bert-base":
-            bert_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-            bert_model = BertForMaskedLM.from_pretrained("bert-base-uncased").eval()
-            return bert_tokenizer, bert_model
-    except Exception as e:
-        pass
-
-
-# -----------------------------------------------------------------------------------------
-
-
-# Decoder function
-def decode(tokenizer, pred_idx, top_clean):
-    """Decode a list of predicted ids to the corresponding tokens.
-
-    Args:
-        tokenizer: The tokenizer of the model
-        pred_idx: A list of ids of the tokens to decode
-        top_clean: How many predictions we want
-    """
-    ignore_tokens = string.punctuation + "[PAD]"
-    tokens = []
-    for w in pred_idx:
-        token = "".join(tokenizer.decode(w).split())
-        if token not in ignore_tokens:
-            tokens.append(token.replace("##", ""))
-    return "\n".join(tokens[:top_clean])
-
-
-# -----------------------------------------------------------------------------------------
-
-
-def encode(tokenizer, text_sentence, add_special_tokens=True):
-    """Returns the tuple input_ids, mask_idx containing the ids of the token given in input and of the mask token.
-
-    Args:
-        tokenizer: The tokenizer of the model.
-        text_sentence (_type_): _description_
-        add_special_tokens (bool, optional): _description_. Defaults to True.
-
-    Returns:
-        input_ids: A kist od ids corresponding to the input sentence.
-        mask_idx : The id of the mask token.
-
-    """
-    text_sentence = text_sentence.replace("<mask>", tokenizer.mask_token)
-    # if <mask> is the last token, append a "." so that models dont predict punctuation.
-    if tokenizer.mask_token == text_sentence.split()[-1]:
-        text_sentence += " ."
-
-        input_ids = torch.tensor(
-            [tokenizer.encode(text_sentence, add_special_tokens=add_special_tokens)]
-        )
-        mask_idx = torch.where(input_ids == tokenizer.mask_token_id)[1].tolist()[0]
-    return input_ids, mask_idx
-
-
-# -----------------------------------------------------------------------------------------
-
-
-def get_all_predictions(text_sentence, bert_tokenizer, bert_model, closest_vectors=5):
+def get_all_predictions(text_sentence, tokenizer, bert_model, closest_vectors=5):
     """Given a sentence with a masked token, yields the top closest_vectors predictions
 
     Args:
@@ -94,32 +13,59 @@ def get_all_predictions(text_sentence, bert_tokenizer, bert_model, closest_vecto
     Returns:
         #closest_vectors predictions.
     """
-    input_ids, mask_idx = encode(bert_tokenizer, text_sentence)
-    # print(input_ids, mask_idx)
-    with torch.no_grad():
-        predict = bert_model(input_ids)[0]
-    bert = decode(
-        bert_tokenizer,
-        predict[0, mask_idx, :].topk(closest_vectors).indices.tolist(),
-        closest_vectors,
+
+    allowed_tokens = get_allowed_tokens(tokenizer)
+
+    tokenized_input = tokenizer(
+        text_sentence,
+        return_tensors="pt",
+        return_attention_mask=False,
+        add_special_tokens=False,
     )
+    mask_idx = [
+        i
+        for i, el in enumerate(tokenized_input["input_ids"].squeeze())
+        if el == tokenizer.mask_token_id
+    ]
+
+    with torch.no_grad():
+        predict = bert_model(**tokenized_input)[0]
+    predict[0, mask_idx, allowed_tokens] = predict[0, mask_idx, allowed_tokens] * 100
+    bert = tokenizer.convert_ids_to_tokens(
+        predict[0, mask_idx].topk(closest_vectors).indices.squeeze()
+    )
+
     return {"bert": bert}
+
+
+def get_all_cls_predictions(text_sentence, tokenizer, bert_model, class_map):
+    tokenized_input = tokenizer(
+        text_sentence,
+        return_tensors="pt",
+        return_attention_mask=False,
+        add_special_tokens=False,
+    )
+
+    with torch.no_grad():
+        predict = bert_model(**tokenized_input)[0]
+    return {"bert": class_map[torch.argmax(predict).item()]}
 
 
 # -----------------------------------------------------------------------------------------
 
 
 def simec_bert(
-    encoder,
-    model_head,
-    bert_tokenizer,
-    delta,
-    threshold,
-    num_iter,
-    embedded_input,
-    eq_class_word_id,
-    id_masked_word,
-    print_every_n_iter,
+    model,
+    tokenizer,
+    input_text,
+    eq_class_words,
+    mask_or_cls,
+    device,
+    class_map=None,
+    delta=5.0,
+    threshold=1e-2,
+    num_iter=100,
+    print_every_n_iter=10,
 ):
     """Build a polygonal approximating the equivalence class of a token given an embedded input.
 
@@ -136,89 +82,159 @@ def simec_bert(
         print_every_n_iter: The points built by the algorithm are printed every print_every_n_iter iterations.
     """
 
+    # improvement: this could be batched, allowing for multiple sentences each time
+    def pullback(input_simec, output_simec):
+        # Compute the pullback metric
+        jac = jacobian(output_simec, input_simec)[eq_class_word_ids]
+        jac_t = torch.transpose(jac, -2, -1)
+        tmp = torch.bmm(jac, g)
+        if device.type == "mps":
+            # mps doen't support float64, must convert in float32
+            pullback_metric = torch.bmm(tmp, jac_t).type(torch.float32)
+        else:
+            # The conversion to double is done in order to avoid the following error:
+            # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
+            pullback_metric = torch.bmm(tmp, jac_t).type(torch.double)
+        return torch.linalg.eigh(pullback_metric, UPLO="U")
+
+    # Build the embedding of the sentence
+    tokenized_input = tokenizer(
+        input_text,
+        return_tensors="pt",
+        return_attention_mask=False,
+        add_special_tokens=False,
+    )
+    if mask_or_cls == "mask":
+        keep_constant = [
+            i
+            for i, el in enumerate(tokenized_input["input_ids"].squeeze())
+            if el == tokenizer.mask_token_id
+        ]  #!! only first item !!
+    elif mask_or_cls == "cls":
+        keep_constant = 0
+    no_split_tokens = []
+    for split_w in tokenizer.convert_ids_to_tokens(
+        tokenized_input["input_ids"].squeeze()
+    ):
+        if split_w[:2] == "##":
+            no_split_tokens[-1] += split_w[2:]
+        else:
+            no_split_tokens.append(split_w)
+    w_ids = [i for i, el in enumerate(no_split_tokens) if el in eq_class_words]
+    eq_class_word_ids = [
+        i for i, el in enumerate(tokenized_input.word_ids()) if el in w_ids
+    ]
+
+    embedded_input = model.bert.embeddings(**tokenized_input)
+
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    embedding_dimension = embedded_input.shape[-1]
-    g = torch.eye(embedding_dimension)
+    g = (
+        torch.eye(model.config.hidden_size)
+        .unsqueeze(0)
+        .repeat(len(eq_class_word_ids), 1, 1)
+        .to(device)
+    )
 
     # Clone and require gradient of the embedded input
-    emb_inp_simec = embedded_input[:, :, :].clone()
-    emb_inp_simec = emb_inp_simec.requires_grad_(True)
+    emb_inp_simec = embedded_input.clone().to(device).requires_grad_(True)
 
-    # Compute the output of the encoder. This is the output which we want to keep constant
-    encoder_output = encoder(emb_inp_simec)[0]
+    # Compute the output of the encoder. The output corresponding to the [MASK]
+    # is what we want to keep constant
+    encoder_output = model.bert.encoder(emb_inp_simec)[0].to(device)
 
-    # Send objects to GPU
-    encoder = encoder.to(device)
-    g = g.to(device)
-    encoder_output = encoder_output.to(device)
-    emb_inp_simec = emb_inp_simec.to(device)
-    encoder_output = encoder(emb_inp_simec)[0]
-
-    # Build an id-token dictionary, employed later to check the output tokens of the algorithm
-    vocab_embedding = bert_tokenizer.vocab.values()
-    id_to_token = {
-        key: value
-        for value, key in zip(
-            bert_tokenizer.vocab.keys(), bert_tokenizer.vocab.values()
-        )
-    }
+    allowed_tokens = get_allowed_tokens(tokenizer)
 
     # Keep track of the length of the polygonal
-    distance = 0.0
+    distance = torch.zeros(len(eq_class_word_ids))
     for i in range(num_iter):
-
-        # Compute the pullback metric
-        jac = jacobian(encoder_output[0, id_masked_word, :], emb_inp_simec)[
-            eq_class_word_id
-        ]
-        jac_t = torch.transpose(jac, 0, 1)
-        tmp = torch.mm(jac, g)
-        pullback_metric = torch.mm(tmp, jac_t)
-
-        # Compute eigenvalues and eigenvectors
-        eigenvalues, eigenvectors = torch.linalg.eigh(pullback_metric, UPLO="U")
+        # Compute the pullback metric and its eigenvalues and eigenvectors
+        eigenvalues, eigenvectors = pullback(
+            output_simec=encoder_output[0, keep_constant].squeeze(),
+            input_simec=emb_inp_simec,
+        )
 
         # Select a random eigenvectors corresponding to a null eigenvalue.
         # We consider an eigenvalue null if it is below a threshold value-
-        zero_eigenvalues = eigenvalues < threshold
-        number_null_eigenvalues = torch.count_nonzero(zero_eigenvalues)
-        id_eigen = torch.randint(0, number_null_eigenvalues, (1,)).item()
-        null_vector = eigenvectors[:, id_eigen]
+        number_null_eigenvalues = torch.count_nonzero(eigenvalues < threshold, dim=1)
+        null_vecs, zero_eigenvals = [], []
+        for emb in range(eigenvalues.size(0)):
+            if number_null_eigenvalues[emb]:
+                id_eigen = torch.randint(0, number_null_eigenvalues[emb], (1,)).item()
+                null_vecs.append(eigenvectors[emb, :, id_eigen].type(torch.float))
+                zero_eigenvals.append(eigenvalues[emb, id_eigen].type(torch.float))
+            else:
+                null_vecs.append(torch.zeros(1).type(torch.float))
+                zero_eigenvals.append(torch.zeros(1).type(torch.float))
+        null_vecs = torch.stack(null_vecs, dim=0)
+        zero_eigenvals = torch.stack(zero_eigenvals, dim=0)
 
-        # Proceeed along a null direction
-        emb_inp_simec[0, eq_class_word_id, :] = (
-            emb_inp_simec[0, eq_class_word_id, :] + delta * null_vector
-        )
-        distance += eigenvalues[id_eigen].item() * delta
+        with torch.no_grad():
+            # Proceeed along a null direction
+            emb_inp_simec[0, eq_class_word_ids] = (
+                emb_inp_simec[0, eq_class_word_ids] + delta * null_vecs
+            )
+            distance += zero_eigenvals * delta
+
+            if i % print_every_n_iter == 0:
+                tmp = encoder_output.cpu()
+                if mask_or_cls == "mask":
+                    pred = model.cls(tmp)[0]
+                    pred[:, allowed_tokens] = pred[:, allowed_tokens] * 100
+                elif mask_or_cls == "cls":
+                    pred = model.decoder.cls(
+                        model.decoder.bert.encoder(emb_inp_simec)[0]
+                    )[0]
+                for idx, w in zip(eq_class_word_ids, eq_class_words):
+                    print(w.upper())
+                    similar_word = tokenizer.convert_ids_to_tokens(
+                        pred[idx].topk(5).indices
+                    )
+                    print(pred[idx])
+                    print("First five words in the equivalence class:")
+                    print(similar_word)
+                print("Length of the polygonal in the embedding space :", distance)
+                if mask_or_cls == "mask":
+                    print(
+                        "Argmax of the output:",
+                        torch.argmax(pred[keep_constant]).item(),
+                    )
+                    print(
+                        "Max of the output:",
+                        torch.max(pred[keep_constant]).item() / 100,
+                    )
+                    print(
+                        "Output token:",
+                        tokenizer.convert_ids_to_tokens(
+                            [torch.argmax(pred[keep_constant]).item()],
+                        ),
+                    )
+                elif mask_or_cls == "cls":
+                    print("Whole sentence with argmax for each token")
+                    print(
+                        " ".join(
+                            tokenizer.convert_ids_to_tokens(torch.argmax(pred, dim=-1))[
+                                1:
+                            ]
+                        )
+                    )
+                    pred = model.classifier(model.bert.pooler(tmp))
+                    print(
+                        "Argmax of the output:",
+                        torch.argmax(pred).item(),
+                    )
+                    print(
+                        "Max of the output:",
+                        torch.max(pred).item() / 100,
+                    )
+                    print(
+                        "Output class:",
+                        class_map[torch.argmax(pred).item()],
+                    )
+                print("---------------------------------------------------------------")
 
         # Prepare for next iteration
-        emb_inp_simec = emb_inp_simec.requires_grad_(True)
-        encoder_output = encoder(emb_inp_simec)[0]
-
-        if i % print_every_n_iter == 0:
-            tmp = encoder_output.cpu()
-            similar_word = decode(
-                bert_tokenizer,
-                model_head(tmp)[0, eq_class_word_id, :].topk(5).indices.tolist(),
-                5,
-            )
-            print(model_head(tmp)[0, eq_class_word_id, :])
-            print("First five words in the equivalence class:")
-            print(similar_word)
-            print("Length of the polygonal in the embedding space :", distance)
-            print(
-                "Argmax of the output:",
-                torch.argmax(model_head(tmp)[0, id_masked_word, :]).item(),
-            )
-            print(
-                "Max of the output:",
-                torch.max(model_head(tmp)[0, id_masked_word, :]).item(),
-            )
-            print(
-                "Output token:",
-                id_to_token[torch.argmax(model_head(tmp)[0, id_masked_word, :]).item()],
-            )
-            print("---------------------------------------------------------------")
+        emb_inp_simec = emb_inp_simec.to(device).requires_grad_(True)
+        encoder_output = model.bert.encoder(emb_inp_simec)[0].to(device)
 
 
 # -----------------------------------------------------------------------------------------
@@ -226,53 +242,45 @@ def simec_bert(
 
 def main():
 
-    # Build the model
-    model_name = "bert-mini"
-    # model_name = "bert-base"
-    bert_tokenizer, bert_model = load_model(model_name)
+    # Select the device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Get the embedding part of the model
-    embedding = bert_model.bert.embeddings
-    # Get the encoder part of the model
-    encoder = bert_model.bert.encoder
-    # Get the prediction head of the model, to convert the embedded output to a tokens
-    model_head = bert_model.cls
+    mask_or_cls = "cls"
+    class_map = None
+
+    # Build the model
+    model_name = "ctoraman/hate-speech-bert"
+    # model_name = "bert-base"
+    bert_tokenizer, bert_model = load_bert_model(model_name, mask_or_cls=mask_or_cls)
 
     # Input sentence
-    input_text = "I would like a pie with"
-    input_text += " <mask>"
+    input_text = "[CLS] I hate it!"
+    # input_text = "[CLS] That nurse is a [MASK]"
     # Check predictions
-    prediction = get_all_predictions(
-        input_text, bert_tokenizer, bert_model, closest_vectors=3
-    )["bert"]
+    if mask_or_cls == "mask":
+        prediction = get_all_predictions(
+            input_text, bert_tokenizer, bert_model, closest_vectors=3
+        )["bert"]
+    elif mask_or_cls == "cls":
+        class_map = {0: "Neutral", 1: "Offensive", 2: "Hate"}
+        prediction = get_all_cls_predictions(
+            input_text,
+            bert_tokenizer,
+            bert_model,
+            class_map=class_map,
+        )["bert"]
     print(prediction)
     print("---------------------------------------------------------------")
 
-    # Build the embedding of the sentence
-    input_ids, mask_idx = encode(bert_tokenizer, input_text)
-    embedded_input = embedding(input_ids)
-
-    # Set SiMEC parameters
-    delta = 1.0
-    threshold = 1e-2
-    num_iter = 500
-    print_every_n_iter = 10
-    eq_class_word_id = 3
-    eq_class_word_id = 5
-    id_masked_word = 7
-
     # Run the algorithm
     simec_bert(
-        encoder,
-        model_head,
-        bert_tokenizer,
-        delta,
-        threshold,
-        num_iter,
-        embedded_input,
-        eq_class_word_id,
-        id_masked_word,
-        print_every_n_iter,
+        model=bert_model,
+        tokenizer=bert_tokenizer,
+        input_text=input_text,
+        eq_class_words=["i", "hate", "it", "!"],
+        mask_or_cls=mask_or_cls,
+        device=device,
+        class_map=class_map,
     )
 
 

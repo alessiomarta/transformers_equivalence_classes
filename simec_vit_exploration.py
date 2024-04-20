@@ -35,9 +35,9 @@ def simec_vit(
     print_every_n_iter=4,
     img_out_dir=".",
 ):
-    def simec(input_simec, output_simec, patch_id):
+    def pullback(input_simec, output_simec):
         # Compute the pullback metric
-        jac = jacobian(output_simec, input_simec)[patch_id]
+        jac = jacobian(output_simec, input_simec)[eq_class_patch_id]
         jac_t = torch.transpose(jac, -2, -1)
         tmp = torch.mm(jac, g)
         if device.type == "mps":
@@ -71,10 +71,9 @@ def simec_vit(
     distance = 0.0
     for i in range(n_iterations):
         # simec --------------------------------------------------------------
-        eigenvalues, eigenvectors = simec(
+        eigenvalues, eigenvectors = pullback(
             output_simec=encoder_output[0, 0],
             input_simec=emb_inp_simec,
-            patch_id=eq_class_patch_id,
         )
 
         # random walk step ---------------------------------------------------

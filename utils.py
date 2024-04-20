@@ -1,6 +1,12 @@
 import json
+import string
 import torch
 from torchvision import datasets, transforms
+from transformers import (
+    BertForMaskedLM,
+    BertForSequenceClassification,
+    BertTokenizerFast,
+)
 from vit import ViTForClassfication
 
 
@@ -69,8 +75,67 @@ def load_model(model_path, config_path, device):
 
 def deactivate_dropout_layers(model):
     """Deactivate the dropout layers of the model after training."""
-    model.embedding.dropout.p = 0.0
-    for block in model.encoder.blocks:
-        block.attention.attn_dropout.p = 0.0
-        block.attention.output_dropout.p = 0.0
-        block.mlp.dropout.p = 0.0
+    if isinstance(model, ViTForClassfication):
+        model.embedding.dropout.p = 0.0
+        for block in model.encoder.blocks:
+            block.attention.attn_dropout.p = 0.0
+            block.attention.output_dropout.p = 0.0
+            block.mlp.dropout.p = 0.0
+    elif isinstance(model, BertForSequenceClassification) or isinstance(
+        model, BertForMaskedLM
+    ):
+        model.bert.embeddings.dropout.p = 0.0
+        if hasattr(model, "dropout"):
+            model.dropout.p = 0.0
+        for layer in model.bert.encoder.layer:
+            layer.attention.self.dropout.p = 0.0
+            layer.attention.output.dropout.p = 0.0
+            layer.output.dropout.p = 0.0
+            if hasattr(layer, "crossattention"):
+                layer.crossattention.self.dropout.p = 0.0
+                layer.crossattention.output.dropout.p = 0.0
+
+
+def load_bert_model(model_name, mask_or_cls):
+    """Load pre-trained model (either bert-base or bert-mini)
+
+    Args:
+        model_name: Either "bert-base" (768-d embedding space) or "bert-mini" (256-d embedding space).
+
+    Returns:
+        The loaded model.
+    """
+    if mask_or_cls == "mask":
+        if model_name.lower() == "bert-mini":
+            model_name = "prajjwal1/" + model_name
+        elif model_name.lower() in ["bert-base", "bert-tiny"]:
+            if model_name.lower() == "bert-tiny":
+                model_name = "gaunernst/" + model_name
+            model_name = model_name + "-uncased"
+        bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
+        bert_model = BertForMaskedLM.from_pretrained(model_name)
+        return bert_tokenizer, bert_model
+    bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
+    bert_model = BertForSequenceClassification.from_pretrained(model_name)
+    bert_model.decoder = BertForMaskedLM.from_pretrained("bert-base-uncased")
+    return bert_tokenizer, bert_model
+
+
+# Helper function to identify punctuation
+def is_punctuation(token):
+    return all(char in string.punctuation for char in token)
+
+
+def get_allowed_tokens(tokenizer):
+    # Identify punctuation and special tokens
+    return [
+        idx
+        for token, idx in tokenizer.vocab.items()
+        if not (
+            is_punctuation(token)
+            or token in tokenizer.all_special_tokens
+            or token.startswith("[unused")
+            or token.startswith("##")
+            or token.isdigit()
+        )
+    ]

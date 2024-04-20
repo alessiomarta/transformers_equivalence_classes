@@ -22,7 +22,7 @@ from utils import prepare_data, deactivate_dropout_layers, load_model
 
 
 def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
-    def simec(input_simec, output_simec):
+    def pullback(input_simec, output_simec):
         # Compute the pullback metric
         jac = jacobian(output_simec, input_simec)
         jac_t = torch.transpose(jac, -2, -1)
@@ -50,7 +50,7 @@ def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
     encoder_output = model.encoder(emb_inp_simec)[0]
 
     max_eigenvalues = []
-    eigenvalues, _ = simec(
+    eigenvalues, _ = pullback(
         output_simec=encoder_output[0, 0],
         input_simec=emb_inp_simec,
     )
