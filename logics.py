@@ -8,7 +8,7 @@ This module leverages PyTorch for tensor operations and gradient computations.
 
 import os
 import time
-from typing import List, Any
+from typing import List
 from collections import defaultdict
 import torch
 from utils import save_object
