@@ -38,8 +38,13 @@ def pullback(input_simec, output_simec, g, eq_class_emb_ids=None):
     return torch.linalg.eigh(pullback_metric, UPLO="U")
 
 
-def pullback_eigenvalues(input_embedding, model, pred_id, device):
+def pullback_eigenvalues(
+    input_embedding, model, pred_id, device, keep_timing=False, out_dir="."
+):
     # input embedding : (batch, number of embeddings, hidden size)
+
+    if keep_timing:
+        tic = time.time()
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
@@ -62,6 +67,12 @@ def pullback_eigenvalues(input_embedding, model, pred_id, device):
         input_simec=input_emb,
         g=g,
     )
+
+    if keep_timing:
+        save_object(
+            {"eigenvalues": eigenvalues, "time": time.time() - tic},
+            os.path.join(out_dir, "pullback_eigenvalues.pkl"),
+        )
 
     return eigenvalues
 
