@@ -49,7 +49,6 @@ def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
     # Compute the output of the encoder. This is the output which we want to keep constant
     encoder_output = model.encoder(emb_inp_simec)[0]
 
-    max_eigenvalues = []
     eigenvalues, _ = pullback(
         output_simec=encoder_output[0, 0],
         input_simec=emb_inp_simec,
