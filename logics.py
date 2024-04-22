@@ -172,8 +172,8 @@ def explore(
             "input_embedding": input_emb,
             "output_embedding": output_emb,
             "distance": distance,
-            "iteration": "final",
+            "iteration": n_iterations,
             "time": times["time"],
         },
-        os.path.join(out_dir, "final.pkl"),
+        os.path.join(out_dir, f"{n_iterations}.pkl"),
     )
