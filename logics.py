@@ -8,24 +8,27 @@ This module leverages PyTorch for tensor operations and gradient computations.
 
 import os
 import time
+from typing import List, Any
 from collections import defaultdict
 import torch
 from utils import save_object
 
 
-def jacobian(nn_output, nn_input):
+def jacobian(nn_output: torch.Tensor, nn_input: torch.Tensor):
     """
-    Computes the full Jacobian matrix of the neural network output with respect to its input.
+    Computes the full Jacobian matrix of the neural network output with respect
+    to its input.
 
     Args:
-        nn_output (torch.Tensor): The output tensor of a neural network where each element
-                                  depends on the input tensor and has gradients enabled.
-        nn_input (torch.Tensor): The input tensor to the neural network with gradients enabled.
+        nn_output (torch.Tensor): The output tensor of a neural network where
+        each element depends on the input tensor and has gradients enabled.
+        nn_input (torch.Tensor): The input tensor to the neural network with
+        gradients enabled.
 
     Returns:
-        torch.Tensor: A tensor representing the Jacobian matrix. The dimensions of the
-                      matrix will be [len(nn_output), len(nn_input)], reflecting the partial
-                      derivatives of each output element with respect to each input element.
+        torch.Tensor: A tensor representing the Jacobian matrix. The dimensions
+        of the matrix will be [len(nn_output), len(nn_input)], reflecting the
+        partial derivatives of each output element with respect to each input element.
     """
 
     return torch.stack(
@@ -37,19 +40,28 @@ def jacobian(nn_output, nn_input):
     )[0].detach()
 
 
-def pullback(input_simec, output_simec, g, eq_class_emb_ids=None):
+def pullback(
+    input_simec: torch.Tensor,
+    output_simec: torch.Tensor,
+    g: torch.Tensor,
+    eq_class_emb_ids: List[int] = None,
+):
     """
     Computes the pullback metric tensor using the given input and output embeddings and a metric tensor g.
 
     Args:
         input_simec (torch.Tensor): Input embeddings tensor.
-        output_simec (torch.Tensor): Output embeddings tensor derived from the input embeddings.
-        g (torch.Tensor): Metric tensor g used as the Riemannian metric in the output space.
-        eq_class_emb_ids (List[int], optional): Indices of embeddings to be considered for the pullback. If provided,
-                                                restricts the computation to these embeddings.
+        output_simec (torch.Tensor): Output embeddings tensor derived from the
+        input embeddings.
+        g (torch.Tensor): Metric tensor g used as the Riemannian metric in the
+        output space.
+        eq_class_emb_ids (List[int], optional): Indices of embeddings to be
+        considered for the pullback. If provided, restricts the computation to
+        these embeddings.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: Eigenvalues and eigenvectors of the pullback metric tensor.
+        Tuple[torch.Tensor, torch.Tensor]: Eigenvalues and eigenvectors of the
+        pullback metric tensor.
     """
     jac = jacobian(output_simec, input_simec)
     if eq_class_emb_ids:
@@ -61,18 +73,28 @@ def pullback(input_simec, output_simec, g, eq_class_emb_ids=None):
 
 
 def pullback_eigenvalues(
-    input_embedding, model, pred_id, device, keep_timing=False, out_dir="."
+    input_embedding: torch.Tensor,
+    model: torch.nn.Module,
+    pred_id: int,
+    device: torch.device,
+    keep_timing: bool = False,
+    out_dir: str = ".",
 ):
     """
-    Calculates the eigenvalues of the pullback metric tensor derived from a given model's embeddings.
+    Calculates the eigenvalues of the pullback metric tensor derived from a given
+    model's embeddings.
 
     Args:
         input_embedding (torch.Tensor): The input embedding tensor.
-        model (torch.nn.Module): Neural network model that produces output embeddings from the input embeddings.
-        pred_id (int): Index of the prediction to be considered for the pullback calculation.
+        model (torch.nn.Module): Neural network model that produces output
+        embeddings from the input embeddings.
+        pred_id (int): Index of the prediction to be considered for the pullback
+        calculation.
         device (torch.device): Device to perform the computation on.
-        keep_timing (bool, optional): Flag to determine whether timing data should be saved. Defaults to False.
-        out_dir (str, optional): Directory where timing and eigenvalues data will be saved if `keep_timing` is True.
+        keep_timing (bool, optional): Flag to determine whether timing data
+        should be saved. Defaults to False.
+        out_dir (str, optional): Directory where timing and eigenvalues data
+        will be saved if `keep_timing` is True.
 
     Returns:
         torch.Tensor: Eigenvalues of the pullback metric.
@@ -113,18 +135,18 @@ def pullback_eigenvalues(
 
 
 def explore(
-    same_equivalence_class,
-    input_embedding,
-    model,
-    delta,
-    threshold,
-    n_iterations,
-    pred_id,
-    device,
-    eq_class_emb_ids=None,
-    keep_timing=False,
-    save_each=10,
-    out_dir=".",
+    same_equivalence_class: bool,
+    input_embedding: torch.Tensor,
+    model: torch.nn.Module,
+    delta: float,
+    threshold: float,
+    n_iterations: int,
+    pred_id: int,
+    device: torch.device,
+    eq_class_emb_ids: List[int] = None,
+    keep_timing: bool = False,
+    save_each: int = 10,
+    out_dir: str = ".",
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
