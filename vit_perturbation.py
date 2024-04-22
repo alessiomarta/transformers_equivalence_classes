@@ -2,8 +2,10 @@ from utils import *
 import argparse
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 from time import time
 import os
+import json
 
 
 def parse_args():
@@ -92,6 +94,7 @@ def main():
     sd = 1
     direction = torch.normal(mean = mu, std = sd, size = img.shape).flatten()
     count = 0
+    norm = Normalize(vmin=-1, vmax=1)
 
     timer = initial_time
 
@@ -108,13 +111,21 @@ def main():
                      direction = direction,
                      y = y)
         
+        timedelta = time() - tic
+        timer -= timedelta
+        
         fname = os.path.join(
                     img_out_dir, str(count) + ".png"
                 )
+        _, ax = plt.subplots()
+        ax.imshow(img.squeeze().cpu().numpy(), cmap="gray", norm=norm)
+        if not os.path.exists(img_out_dir):
+            os.makedirs(img_out_dir)
+        plt.savefig(fname)
+        plt.close()
         
         count += 1
-        timedelta = time() - tic
-        timer -= timedelta
+
 
     stats = {
         "time": int(initial_time - timer),
