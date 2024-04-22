@@ -7,7 +7,17 @@ from transformers import (
     BertForSequenceClassification,
     BertTokenizerFast,
 )
+
+try:
+    import cPickle as pickle
+except ModuleNotFoundError:
+    import pickle
 from vit import ViTForClassfication
+
+
+def save_object(obj, filename):
+    with open(filename, "wb") as outp:  # Overwrites any existing file.
+        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 
 def prepare_data(

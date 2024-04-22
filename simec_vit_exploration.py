@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
-from jacobian_function import jacobian
+from logics import jacobian
 from utils import prepare_data, deactivate_dropout_layers, load_model
 from vit import PatchDecoder
 
@@ -69,7 +69,7 @@ def simec_vit(
     )
 
     times = defaultdict(float)
-    times['n_iterations'] = n_iterations
+    times["n_iterations"] = n_iterations
 
     # Keep track of the length of the polygonal
     distance = torch.zeros(len(eq_class_patch_ids))
@@ -155,8 +155,6 @@ def simec_vit(
         # Prepare for the next iteration.
         emb_inp_simec = emb_inp_simec.requires_grad_(True)
         encoder_output = model.encoder(emb_inp_simec)[0]
-
-    
 
 
 def parse_args():

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-from jacobian_function import jacobian
+from logics import jacobian
 from utils import load_bert_model, get_allowed_tokens
 
 

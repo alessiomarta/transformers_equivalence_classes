@@ -1,5 +1,5 @@
 import torch
-from jacobian_function import jacobian
+from logics import jacobian
 from utils import load_bert_model, get_allowed_tokens
 
 

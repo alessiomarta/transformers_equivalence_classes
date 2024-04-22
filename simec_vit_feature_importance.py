@@ -4,7 +4,7 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import torch
-from jacobian_function import jacobian
+from logics import jacobian
 from utils import prepare_data, deactivate_dropout_layers, load_model
 
 
