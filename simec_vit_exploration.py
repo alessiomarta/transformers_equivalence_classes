@@ -1,4 +1,5 @@
 import argparse
+from collections import defaultdict
 import os
 import time
 import numpy as np
@@ -67,9 +68,15 @@ def simec_vit(
         model_embedding_layer=model.embedding,
     )
 
+    times = defaultdict(float)
+    times['n_iterations'] = n_iterations
+
     # Keep track of the length of the polygonal
     distance = torch.zeros(len(eq_class_patch_ids))
     for i in range(n_iterations):
+
+        tic = time()
+
         # simec --------------------------------------------------------------
         eigenvalues, eigenvectors = pullback(
             output_simec=encoder_output[0, 0],
@@ -102,6 +109,8 @@ def simec_vit(
             # Clamp the tensor in [-1,1].
             # emb_inp_simec[emb_inp_simec < -1.0] = -1.0
             # emb_inp_simec[emb_inp_simec > 1.0] = 1.0
+
+            times["time"] += time() - tic
 
             norm = Normalize(vmin=-1, vmax=1)
 
@@ -146,6 +155,8 @@ def simec_vit(
         # Prepare for the next iteration.
         emb_inp_simec = emb_inp_simec.requires_grad_(True)
         encoder_output = model.encoder(emb_inp_simec)[0]
+
+    
 
 
 def parse_args():
