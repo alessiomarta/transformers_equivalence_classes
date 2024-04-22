@@ -1,9 +1,8 @@
 import argparse
 import os
 import time
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.gridspec import GridSpec
 import torch
 from jacobian_function import jacobian
 from utils import prepare_data, deactivate_dropout_layers, load_model
@@ -56,31 +55,29 @@ def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
     max_eigenvalues = [
         torch.tensor(v) for v in torch.max(eigenvalues, dim=1).values.tolist()
     ]
-    first_col_cls = torch.zeros(starting_img.size(-1))
-    first_col_cls[0] = max_eigenvalues.pop(0)
+
     max_eigenvalues = (
-        torch.stack(max_eigenvalues)
+        torch.stack(max_eigenvalues[1:])
         .reshape(14, 14)
         .repeat_interleave(2, dim=0)
         .repeat_interleave(2, dim=1)
     )
-    max_eigenvalues = torch.concat([first_col_cls.unsqueeze(0), max_eigenvalues], dim=0)
     fname = os.path.join(img_out_dir, time.strftime("%Y%m%d-%H%M%S") + ".png")
-    fig, ax = plt.subplots()
-    ax.imshow(starting_img.squeeze().cpu().detach().numpy() * (-1), cmap="gray")
-    custom_cmap = LinearSegmentedColormap.from_list(
-        "white_to_pink", ["white", "mediumvioletred"]
+    fig = plt.figure(figsize=(8, 4))
+    gs = GridSpec(1, 3, width_ratios=[1, 1, 0.05])
+    ax1, ax2, cax = (
+        fig.add_subplot(gs[0, 0]),
+        fig.add_subplot(gs[0, 1]),
+        fig.add_subplot(gs[0, 2]),
     )
-    colors = custom_cmap(np.arange(256))
-    # Modify alpha values linearly across the colormap
-    alphas = np.linspace(0, 0.9, 256)
-    colors[:, -1] = alphas  # Replace the alpha channel with the new alpha values
-    alpha_cmap = LinearSegmentedColormap.from_list("alpha_cmap", colors, N=256)
-    feature_importance = ax.imshow(
-        max_eigenvalues.squeeze().cpu().detach().numpy(), cmap=alpha_cmap
-    )
-    cbar = fig.colorbar(feature_importance, ax=ax)
+
+    ax1.imshow(starting_img.squeeze().cpu().detach().numpy(), cmap="gray")
+    ax1.axis("off")
+    feature_importance = ax2.imshow(max_eigenvalues.squeeze().cpu().detach().numpy())
+    ax2.axis("off")
+    cbar = plt.colorbar(feature_importance, cax=cax)
     cbar.set_label("Eigenvalues")
+    plt.subplots_adjust(wspace=0, hspace=0)
     if not os.path.exists(img_out_dir):
         os.makedirs(img_out_dir)
     plt.savefig(fname)
