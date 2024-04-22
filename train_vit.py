@@ -1,6 +1,7 @@
 import time, json, os, argparse
 import torch
 from torchvision import datasets, transforms
+from vit import *
 
 
 CONFIG = {
@@ -78,6 +79,7 @@ class Trainer:
         epochs,
         save_model_every_n_epochs=0,
         measure_time=False,
+        base_dir="/content/drive/MyDrive/mnist_experiments"
     ):
         """
         Train the model for the specified number of epochs.
@@ -105,11 +107,11 @@ class Trainer:
                 and i + 1 != epochs
             ):
                 print("\tSave checkpoint at epoch", i + 1)
-                save_checkpoint(self.exp_name, self.model, i + 1)
+                save_checkpoint(self.exp_name, self.model, i + 1, base_dir)
             print("---------------------------------------------------------")
         # Save the experiment
         save_experiment(
-            self.exp_name, CONFIG, self.model, train_losses, test_losses, accuracies
+            self.exp_name, CONFIG, self.model, train_losses, test_losses, accuracies, base_dir=base_dir
         )
 
     def train_epoch(self, trainloader):
@@ -160,7 +162,7 @@ class Trainer:
 
 
 def prepare_data(
-    batch_size=128, num_workers=2, train_sample_size=None, test_sample_size=None
+    batch_size=128, num_workers=2, train_sample_size=None, test_sample_size=None, data_dir="/content/drive/MyDrive/mnist_data"
 ):
     mean, std = (0.5,), (0.5,)
     transform = transforms.Compose(
@@ -168,7 +170,7 @@ def prepare_data(
     )
 
     trainset = datasets.MNIST(
-        root="/content/drive/MyDrive/mnist_data",
+        root=data_dir,
         download=True,
         train=True,
         transform=transform,
@@ -184,7 +186,7 @@ def prepare_data(
     )
 
     testset = datasets.MNIST(
-        root="/content/drive/MyDrive/mnist_data",
+        root=data_dir,
         download=True,
         train=False,
         transform=transform,
@@ -213,7 +215,7 @@ def main(args, model_path=None):
     save_model_every_n_epochs = args["save_model_every"]
     # Load the MNIST dataset
     print("Preparing data ...")
-    trainloader, testloader, _ = prepare_data(batch_size=batch_size)
+    trainloader, testloader, _ = prepare_data(batch_size=batch_size, data_dir=args["datadir"])
     # Create the model, optimizer, loss function and trainer
     print("Creating the model, optimizer, loss function and trainer ...")
     model = ViTForClassfication(CONFIG)
@@ -230,4 +232,46 @@ def main(args, model_path=None):
         epochs,
         save_model_every_n_epochs=save_model_every_n_epochs,
         measure_time=True,
+        base_dir=args["basedir"]
     )
+
+
+def parse_args():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batchsize", type = int,
+                        help = "Batch size.")
+    parser.add_argument("--epochs", type = int,
+                        help = "Number of training epochs.")
+    parser.add_argument("--lr", type = float,
+                        help = "Learning rate.")
+    parser.add_argument("--device", type = str,
+                        help = "Device for the computation.")
+    parser.add_argument("--savemodelevery", type = int,
+                        help = "Number of epochs after which a checkpoint is saved.")
+    parser.add_argument("--expname", type = str,
+                        help = "Name of the experiment, where to save the model.")
+    parser.add_argument("--basedir", type = str,
+                        help = "Base directory.")
+    parser.add_argument("--datadir", type = str,
+                        help = "Data directory.")
+    args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+
+    args = parse_args()
+    arg_dict = {
+        "batch_size": args.batchsize,
+        "epochs": args.epochs,
+        "lr": args.lr,
+        "device": args.device,
+        "save_model_every": args.savemodelevery,
+        "exp_name": args.expname,
+        "basedir": args.basedir,
+        "datadir": args.datadir
+    }
+
+    main(arg_dict)
