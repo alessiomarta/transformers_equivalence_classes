@@ -1,8 +1,8 @@
 # SIMEC and SIMEXP experiments
 
-First, you need to install the `simec` package:
-
+Until the `simec` package is not published on PyPI, install it in editable mode:
 ```
-pip install simec
+cd simec
+pip install -e simec
 ```
 TODO: continua con l'uso degli esperimenti
