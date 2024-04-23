@@ -97,7 +97,7 @@ def main():
 
     # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    str_time = "20240423-154821"
+
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
