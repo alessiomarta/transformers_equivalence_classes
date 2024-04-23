@@ -6,25 +6,34 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
+from PIL import Image
 import torch
-from simec.logics import jacobian
+from torchvision import transforms
+from simec.logics import explore
+from models.vit import PatchDecoder
 from utils import prepare_data, deactivate_dropout_layers, load_model
-from vit import PatchDecoder
 
 
-# The operator 'aten::_linalg_eigh.eigenvalues' is not currently
-# implemented for the MPS device. If you want this op to be added
-# in priority during the prototype phase of this feature, please
-# comment on https://github.com/pytorch/pytorch/issues/77764. As a
-# temporary fix, you can set the environment variable
-# `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op.
-# WARNING: this will be slower than running natively on MPS.
-# Exeption when executing
-# eigenvalues, eigenvectors = torch.linalg.eigh(pullback_metric, UPLO="U")
-# export PYTORCH_ENABLE_MPS_FALLBACK=1
+def load_raw_images(img_dir):
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(0.5, 0.5)]
+    )
+    image_extensions = (".jpg", ".jpeg", ".png", ".gif", ".bmp")
+    images = []
+    images_names = []
+    for filename in os.listdir(img_dir):
+        if os.path.isfile(
+            os.path.join(img_dir, filename)
+        ) and filename.lower().endswith(image_extensions):
+            image = Image.open(os.path.join(img_dir, filename)).convert("L")
+            if image.size != (28, 28):
+                image = image.resize((28, 28))
+            images.append(transform(image))
+            images_names.append(filename.split(".")[0])
+    return torch.stack(images), images_names
 
 
-def simec_vit(
+def vit_exploration_experiment(
     model,
     starting_img,
     n_iterations,
@@ -75,7 +84,7 @@ def simec_vit(
     distance = torch.zeros(len(eq_class_patch_ids))
     for i in range(n_iterations):
 
-        tic = time()
+        tic = time.time()
 
         # simec --------------------------------------------------------------
         eigenvalues, eigenvectors = pullback(
@@ -110,7 +119,7 @@ def simec_vit(
             # emb_inp_simec[emb_inp_simec < -1.0] = -1.0
             # emb_inp_simec[emb_inp_simec > 1.0] = 1.0
 
-            times["time"] += time() - tic
+            times["time"] += time.time() - tic
 
             norm = Normalize(vmin=-1, vmax=1)
 
@@ -159,66 +168,68 @@ def simec_vit(
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
+    parser.add_argument("--which-patch", nargs="+", default=90)
+    parser.add_argument("--keep-constant", default=0)
+    parser.add_argument("--delta", type=float, default=9e-1)
+    parser.add_argument("--threshold", type=float, default=1e-2)
+    parser.add_argument("--iter", type=int, default=100)
+    parser.add_argument("--img-dir", type=str, required=True)
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
-    parser.add_argument("--which-patch", type=int, default=90)
-    parser.add_argument("--iter", type=int, default=100)
-    parser.add_argument("--img-path", type=str)
     parser.add_argument("--device", type=str)
 
     args = parser.parse_args()
     if args.device is None:
-        if torch.backends.mps.is_available():
-            args.device = "mps"
-        else:
-            args.device = torch.device(
-                "cuda" if torch.cuda.is_available() else "cpu"
-            ).type
+        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
     return args
 
 
 def main():
     args = parse_args()
-    experiment_name = args.exp_name
-    model_path = args.model_path
-    config_path = args.config_path
-    out_dir = args.out_dir
-    iterations = args.iter
-    eq_class_patch = args.which_patch
+    eq_class_patch = args.which_patch if args.which_patch[0].isdigit() else None
     device = torch.device(args.device)
 
     # MNIST data
-    trainloader, _ = prepare_data(test=False)
+    images, names = load_raw_images(args.img_dir)
+    images = images.to(device)
 
+    # load modified ViT model and deactivate it dropout layers
     model, _ = load_model(
-        model_path=model_path,
-        config_path=config_path,
+        model_path=args.model_path,
+        config_path=args.config_path,
         device=device,
     )
-
     deactivate_dropout_layers(model)
 
-    # Get a mini-batch of train data loaders
-    imgs, _ = next(iter(trainloader))
-    imgs = imgs.to(device)
-    # take first image keeping batch dimension
-    img = imgs[0].unsqueeze(0)
+    str_time = time.strftime("%Y%m%d-%H%M%S")
 
-    simec_vit(
-        model=model,
-        starting_img=img,
-        n_iterations=iterations,
-        eq_class_patch_ids=torch.randint(1, 197, (10,)).tolist(),
-        device=device,
-        img_out_dir=os.path.join(
-            out_dir,
-            "input-space-exploration",
-            experiment_name,
-            time.strftime("%Y%m%d-%H%M%S"),
-        ),
-    )
+    for idx, img in enumerate(images):
+
+        # Clone and require gradient of the embedded input and prepare for the first iteration
+        input_patches = model.patcher(img.unsqueeze(0))
+        input_embedding = model.embedding(input_patches)
+
+        # input exploration
+        explore(
+            same_equivalence_class=args.exp_type == "same",
+            input_embedding=input_embedding,
+            model=model.encoder,
+            delta=args.delta,
+            threshold=args.threshold,
+            n_iterations=args.iter,
+            pred_id=args.keep_constant,
+            eq_class_emb_ids=eq_class_patch,
+            device=device,
+            out_dir=os.path.join(
+                args.out_dir,
+                "input-space-exploration",
+                args.exp_name + "-" + str_time,
+                names[idx],
+            ),
+        )
 
 
 if __name__ == "__main__":
