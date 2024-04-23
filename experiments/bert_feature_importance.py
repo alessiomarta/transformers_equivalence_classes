@@ -1,6 +1,13 @@
 import torch
-from logics import jacobian
-from utils import load_bert_model, get_allowed_tokens
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.cm import ScalarMappable
+from matplotlib.colors import Normalize
+from transformers_equivalence_classes.simec.logics import jacobian
+from transformers_equivalence_classes.experiments.utils import (
+    load_bert_model,
+    get_allowed_tokens,
+)
 
 
 def get_all_predictions(text_sentence, tokenizer, bert_model, closest_vectors=5):
@@ -51,6 +58,58 @@ def get_all_cls_predictions(text_sentence, tokenizer, bert_model, class_map):
     return {"bert": class_map[torch.argmax(predict).item()]}
 
 
+def save_colorbar(min_imp, max_imp, colormap, filename):
+    # Create a figure and a single subplot
+    fig, ax = plt.subplots(figsize=(6, 1))
+    fig.subplots_adjust(bottom=0.5)
+
+    cmap = plt.get_cmap(colormap)
+    norm = Normalize(vmin=min_imp, vmax=max_imp)
+
+    # Create a ScalarMappable and initialize a colorbar
+    sm = ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, cax=ax, orientation="horizontal")
+    cbar.set_label("Importance Level")
+
+    # Save the colorbar as an image
+    plt.savefig(filename)
+    plt.close()
+
+
+def generate_color_gradient(min_imp, max_imp, colormap):
+    cmap = plt.get_cmap(colormap)
+    gradient = [
+        cmap(float(x) / (max_imp - min_imp))
+        for x in np.linspace(min_imp, max_imp, num=256)
+    ]
+    return [
+        f"rgba({int(rgba[0]*255)}, {int(rgba[1]*255)}, {int(rgba[2]*255)}, {rgba[3]})"
+        for rgba in gradient
+    ]
+
+
+def create_html_with_highlighted_text(text, importance_levels, colors, colorbar_img):
+    html_content = "<html><head><style>"
+    # Map importance levels to the gradient indexes
+    color_index = {
+        level: int(
+            (level - min(importance_levels))
+            / (max(importance_levels) - min(importance_levels))
+            * 255
+        )
+        for level in importance_levels
+    }
+    for i, level in enumerate(importance_levels):
+        color = colors[color_index[level]]
+        html_content += f".imp{i} {{ background-color: {color}; padding: 0 2px; border-radius:10%;font-family: 'Trebuchet MS', sans-serif;}}\n"
+    html_content += "</style></head><body><p>"
+    for i, word in enumerate(text):
+        html_content += f'<span class="imp{i}">{word}</span> '
+    html_content += f'</p><img src="{colorbar_img}" alt="Colorbar" style="width:50%; height:auto;"><body></html>'
+    return html_content
+
+
 # -----------------------------------------------------------------------------------------
 
 
@@ -85,7 +144,7 @@ def simec_bert(
     # improvement: this could be batched, allowing for multiple sentences each time
     def pullback(input_simec, output_simec):
         # Compute the pullback metric
-        jac = jacobian(output_simec, input_simec)[eq_class_word_ids]
+        jac = jacobian(output_simec, input_simec)
         jac_t = torch.transpose(jac, -2, -1)
         tmp = torch.bmm(jac, g)
         if device.type == "mps":
@@ -112,18 +171,6 @@ def simec_bert(
         ]  #!! only first item !!
     elif mask_or_cls == "cls":
         keep_constant = 0
-    no_split_tokens = []
-    for split_w in tokenizer.convert_ids_to_tokens(
-        tokenized_input["input_ids"].squeeze()
-    ):
-        if split_w[:2] == "##":
-            no_split_tokens[-1] += split_w[2:]
-        else:
-            no_split_tokens.append(split_w)
-    w_ids = [i for i, el in enumerate(no_split_tokens) if el in eq_class_words]
-    eq_class_word_ids = [
-        i for i, el in enumerate(tokenized_input.word_ids()) if el in w_ids
-    ]
 
     embedded_input = model.bert.embeddings(**tokenized_input)
 
@@ -131,7 +178,7 @@ def simec_bert(
     g = (
         torch.eye(model.config.hidden_size)
         .unsqueeze(0)
-        .repeat(len(eq_class_word_ids), 1, 1)
+        .repeat(embedded_input.size(1), 1, 1)
         .to(device)
     )
 
@@ -142,102 +189,37 @@ def simec_bert(
     # is what we want to keep constant
     encoder_output = model.bert.encoder(emb_inp_simec)[0].to(device)
 
-    allowed_tokens = get_allowed_tokens(tokenizer)
+    # Compute the pullback metric and its eigenvalues and eigenvectors
+    eigenvalues, _ = pullback(
+        output_simec=encoder_output[0, keep_constant].squeeze(),
+        input_simec=emb_inp_simec,
+    )
 
-    # Keep track of the length of the polygonal
-    distance = torch.zeros(len(eq_class_word_ids))
-    for i in range(num_iter):
-        # Compute the pullback metric and its eigenvalues and eigenvectors
-        eigenvalues, eigenvectors = pullback(
-            output_simec=encoder_output[0, keep_constant].squeeze(),
-            input_simec=emb_inp_simec,
-        )
+    max_eigenvalues = [
+        torch.tensor(v).item() for v in torch.max(eigenvalues, dim=1).values.tolist()
+    ]
 
-        # Select a random eigenvectors corresponding to a null eigenvalue.
-        # We consider an eigenvalue null if it is below a threshold value-
-        number_null_eigenvalues = torch.count_nonzero(eigenvalues < threshold, dim=1)
-        null_vecs, zero_eigenvals = [], []
-        for emb in range(eigenvalues.size(0)):
-            if number_null_eigenvalues[emb]:
-                id_eigen = torch.randint(0, number_null_eigenvalues[emb], (1,)).item()
-                null_vecs.append(eigenvectors[emb, :, id_eigen].type(torch.float))
-                zero_eigenvals.append(eigenvalues[emb, id_eigen].type(torch.float))
-            else:
-                null_vecs.append(torch.zeros(1).type(torch.float))
-                zero_eigenvals.append(torch.zeros(1).type(torch.float))
-        null_vecs = torch.stack(null_vecs, dim=0)
-        zero_eigenvals = torch.stack(zero_eigenvals, dim=0)
+    sentence = tokenizer.convert_ids_to_tokens(tokenized_input["input_ids"].squeeze())
+    colorbar_img_path = "colorbar.png"
 
-        with torch.no_grad():
-            # Proceeed along a null direction
-            emb_inp_simec[0, eq_class_word_ids] = (
-                emb_inp_simec[0, eq_class_word_ids] + delta * null_vecs
-            )
-            distance += zero_eigenvals * delta
+    # Generate a color gradient from the 'Blues' colormap
+    colors = generate_color_gradient(
+        min(max_eigenvalues), max(max_eigenvalues), "Oranges"
+    )
 
-            if i % print_every_n_iter == 0:
-                tmp = encoder_output.cpu()
-                if mask_or_cls == "mask":
-                    pred = model.cls(tmp)[0]
-                    pred[:, allowed_tokens] = pred[:, allowed_tokens] * 100
-                elif mask_or_cls == "cls":
-                    pred = model.decoder.cls(
-                        model.decoder.bert.encoder(emb_inp_simec)[0]
-                    )[0]
-                for idx, w in zip(eq_class_word_ids, eq_class_words):
-                    print(w.upper())
-                    similar_word = tokenizer.convert_ids_to_tokens(
-                        pred[idx].topk(5).indices
-                    )
-                    print(pred[idx])
-                    print("First five words in the equivalence class:")
-                    print(similar_word)
-                print("Length of the polygonal in the embedding space :", distance)
-                if mask_or_cls == "mask":
-                    print(
-                        "Argmax of the output:",
-                        torch.argmax(pred[keep_constant]).item(),
-                    )
-                    print(
-                        "Max of the output:",
-                        torch.max(pred[keep_constant]).item() / 100,
-                    )
-                    print(
-                        "Output token:",
-                        tokenizer.convert_ids_to_tokens(
-                            [torch.argmax(pred[keep_constant]).item()],
-                        ),
-                    )
-                elif mask_or_cls == "cls":
-                    print("Whole sentence with argmax for each token")
-                    print(
-                        " ".join(
-                            tokenizer.convert_ids_to_tokens(torch.argmax(pred, dim=-1))[
-                                1:
-                            ]
-                        )
-                    )
-                    pred = model.classifier(model.bert.pooler(tmp))
-                    print(
-                        "Argmax of the output:",
-                        torch.argmax(pred).item(),
-                    )
-                    print(
-                        "Max of the output:",
-                        torch.max(pred).item() / 100,
-                    )
-                    print(
-                        "Output class:",
-                        class_map[torch.argmax(pred).item()],
-                    )
-                print("---------------------------------------------------------------")
+    # Save colorbar image
+    save_colorbar(
+        min(max_eigenvalues), max(max_eigenvalues), "Oranges", colorbar_img_path
+    )
 
-        # Prepare for next iteration
-        emb_inp_simec = emb_inp_simec.to(device).requires_grad_(True)
-        encoder_output = model.bert.encoder(emb_inp_simec)[0].to(device)
+    # Create HTML content
+    html_content = create_html_with_highlighted_text(
+        sentence, max_eigenvalues, colors, colorbar_img_path
+    )
 
-
-# -----------------------------------------------------------------------------------------
+    # Write the HTML content to a file
+    with open("highlighted_text.html", "w") as file:
+        file.write(html_content)
 
 
 def main():
@@ -254,7 +236,7 @@ def main():
     bert_tokenizer, bert_model = load_bert_model(model_name, mask_or_cls=mask_or_cls)
 
     # Input sentence
-    input_text = "[CLS] I hate it!"
+    input_text = "[CLS] Little stupid as bitch I don't fuck with yoooooouuuu.."
     # input_text = "[CLS] That nurse is a [MASK]"
     # Check predictions
     if mask_or_cls == "mask":

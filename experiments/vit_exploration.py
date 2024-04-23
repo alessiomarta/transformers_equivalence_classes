@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
-from logics import jacobian
+from simec.logics import jacobian
 from utils import prepare_data, deactivate_dropout_layers, load_model
 from vit import PatchDecoder
 
