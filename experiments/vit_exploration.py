@@ -1,6 +1,7 @@
 import argparse
 from collections import defaultdict
 import os
+import json
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,26 +12,7 @@ import torch
 from torchvision import transforms
 from simec.logics import explore
 from models.vit import PatchDecoder
-from utils import prepare_data, deactivate_dropout_layers, load_model
-
-
-def load_raw_images(img_dir):
-    transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(0.5, 0.5)]
-    )
-    image_extensions = (".jpg", ".jpeg", ".png", ".gif", ".bmp")
-    images = []
-    images_names = []
-    for filename in os.listdir(img_dir):
-        if os.path.isfile(
-            os.path.join(img_dir, filename)
-        ) and filename.lower().endswith(image_extensions):
-            image = Image.open(os.path.join(img_dir, filename)).convert("L")
-            if image.size != (28, 28):
-                image = image.resize((28, 28))
-            images.append(transform(image))
-            images_names.append(filename.split(".")[0])
-    return torch.stack(images), images_names
+from utils import load_raw_images, deactivate_dropout_layers, load_model
 
 
 def vit_exploration_experiment(
@@ -170,7 +152,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
-    parser.add_argument("--which-patch", nargs="+", default=90)
     parser.add_argument("--keep-constant", default=0)
     parser.add_argument("--delta", type=float, default=9e-1)
     parser.add_argument("--threshold", type=float, default=1e-2)
@@ -189,12 +170,14 @@ def parse_args():
 
 def main():
     args = parse_args()
-    eq_class_patch = args.which_patch if args.which_patch[0].isdigit() else None
     device = torch.device(args.device)
 
     # MNIST data
     images, names = load_raw_images(args.img_dir)
     images = images.to(device)
+
+    # Select patches to explore
+    eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
 
     # load modified ViT model and deactivate it dropout layers
     model, _ = load_model(
@@ -204,11 +187,13 @@ def main():
     )
     deactivate_dropout_layers(model)
 
+    # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
 
     for idx, img in enumerate(images):
 
-        # Clone and require gradient of the embedded input and prepare for the first iteration
+        # Clone and require gradient of the embedded input and prepare for the
+        # first iteration
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
 
@@ -221,7 +206,9 @@ def main():
             threshold=args.threshold,
             n_iterations=args.iter,
             pred_id=args.keep_constant,
-            eq_class_emb_ids=eq_class_patch,
+            eq_class_emb_ids=(
+                None if eq_class_patch[names[idx]] == [] else eq_class_patch[names[idx]]
+            ),
             device=device,
             out_dir=os.path.join(
                 args.out_dir,

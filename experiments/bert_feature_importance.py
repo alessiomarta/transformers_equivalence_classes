@@ -1,12 +1,18 @@
+import os
+import argparse
+import time
+import json
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-import simec
-from .utils import (
+from simec.logics import pullback_eigenvalues
+from utils import (
     load_bert_model,
     get_allowed_tokens,
+    deactivate_dropout_layers,
+    load_raw_sents,
 )
 
 
@@ -222,48 +228,77 @@ def simec_bert(
         file.write(html_content)
 
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--objective", type=str, choices=["cls", "mask"], required=True)
+    parser.add_argument("--exp-name", type=str, required=True)
+    parser.add_argument("--txt-dir", type=str, required=True)
+    parser.add_argument("--model-name", type=str, required=True)
+    parser.add_argument("--out-dir", type=str, required=True)
+    parser.add_argument("--device", type=str)
+
+    args = parser.parse_args()
+    if args.device is None:
+        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
+    return args
+
+
 def main():
+    args = parse_args()
+    device = torch.device(args.device)
 
-    # Select the device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # TXT data
+    txts, names = load_raw_sents(args.txt_dir)
 
-    mask_or_cls = "cls"
+    # Select words to explore
+    eq_class_words = json.load(open(os.path.join(args.txt_dir, "config.json"), "r"))
     class_map = None
+    if args.objective == "cls":
+        class_map = {int(k): v for k, v in eq_class_words["class-map"]}
 
-    # Build the model
-    model_name = "ctoraman/hate-speech-bert"
-    # model_name = "bert-base"
-    bert_tokenizer, bert_model = load_bert_model(model_name, mask_or_cls=mask_or_cls)
-
-    # Input sentence
-    input_text = "[CLS] Little stupid as bitch I don't fuck with yoooooouuuu.."
-    # input_text = "[CLS] That nurse is a [MASK]"
-    # Check predictions
-    if mask_or_cls == "mask":
-        prediction = get_all_predictions(
-            input_text, bert_tokenizer, bert_model, closest_vectors=3
-        )["bert"]
-    elif mask_or_cls == "cls":
-        class_map = {0: "Neutral", 1: "Offensive", 2: "Hate"}
-        prediction = get_all_cls_predictions(
-            input_text,
-            bert_tokenizer,
-            bert_model,
-            class_map=class_map,
-        )["bert"]
-    print(prediction)
-    print("---------------------------------------------------------------")
-
-    # Run the algorithm
-    simec_bert(
-        model=bert_model,
-        tokenizer=bert_tokenizer,
-        input_text=input_text,
-        eq_class_words=["i", "hate", "it", "!"],
-        mask_or_cls=mask_or_cls,
-        device=device,
-        class_map=class_map,
+    # load model
+    bert_tokenizer, bert_model = load_bert_model(
+        args.model_name, mask_or_cls=args.objective
     )
+    deactivate_dropout_layers(bert_model)
+
+    # for naming results directories
+    str_time = time.strftime("%Y%m%d-%H%M%S")
+
+    for idx, txt in enumerate(txts[:1]):
+
+        # Build the embedding of the sentence
+        tokenized_input = bert_tokenizer(
+            txt,
+            return_tensors="pt",
+            return_attention_mask=False,
+            add_special_tokens=False,
+        )
+        keep_constant = 0  # [CLS] embedding position
+        if args.objective == "mask":
+            keep_constant = [
+                i
+                for i, el in enumerate(tokenized_input["input_ids"].squeeze())
+                if el == bert_tokenizer.mask_token_id
+            ][
+                0
+            ]  # only first MASK token
+
+        embedded_input = bert_model.bert.embeddings(**tokenized_input)
+
+        # Run the algorithm
+        eigenvalues = pullback_eigenvalues(
+            input_embedding=embedded_input,
+            model=bert_model.bert.encoder,
+            pred_id=keep_constant,
+            device=device,
+            out_dir=os.path.join(
+                args.out_dir,
+                "feature-importance",
+                args.exp_name + "-" + str_time,
+                names[idx],
+            ),
+        )
 
 
 if __name__ == "__main__":

@@ -4,9 +4,9 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import torch
-import simec
-from .utils import (
-    prepare_data,
+from simec.logics import pullback_eigenvalues
+from utils import (
+    load_raw_images,
     deactivate_dropout_layers,
     load_model,
 )
@@ -91,59 +91,56 @@ def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, required=True)
+    parser.add_argument("--img-dir", type=str, required=True)
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
-    parser.add_argument("--img-path", type=str)
     parser.add_argument("--device", type=str)
 
     args = parser.parse_args()
     if args.device is None:
-        if torch.backends.mps.is_available():
-            args.device = "mps"
-        else:
-            args.device = torch.device(
-                "cuda" if torch.cuda.is_available() else "cpu"
-            ).type
+        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
     return args
 
 
 def main():
     args = parse_args()
-    experiment_name = args.exp_name
-    model_path = args.model_path
-    config_path = args.config_path
-    out_dir = args.out_dir
     device = torch.device(args.device)
 
     # MNIST data
-    trainloader, _ = prepare_data(test=False)
+    images, names = load_raw_images(args.img_dir)
+    images = images.to(device)
 
+    # load modified ViT model and deactivate it dropout layers
     model, _ = load_model(
-        model_path=model_path,
-        config_path=config_path,
+        model_path=args.model_path,
+        config_path=args.config_path,
         device=device,
     )
-
     deactivate_dropout_layers(model)
 
-    # Get a mini-batch of train data loaders
-    imgs, _ = next(iter(trainloader))
-    imgs = imgs.to(device)
-    # take first image keeping batch dimension
-    img = imgs[0].unsqueeze(0)
+    # for naming results directories
+    str_time = time.strftime("%Y%m%d-%H%M%S")
 
-    simec_feature_importance_vit(
-        model=model,
-        starting_img=img,
-        device=device,
-        img_out_dir=os.path.join(
-            out_dir,
-            "feature-importance",
-            experiment_name,
-            time.strftime("%Y%m%d-%H%M%S"),
-        ),
-    )
+    for idx, img in enumerate(images):
+
+        # Clone and require gradient of the embedded input and prepare for the
+        # first iteration
+        input_patches = model.patcher(img.unsqueeze(0))
+        input_embedding = model.embedding(input_patches)
+
+        eigenvalues = pullback_eigenvalues(
+            model=model.encoder,
+            input_embedding=input_embedding,
+            pred_id=0,
+            device=device,
+            out_dir=os.path.join(
+                args.out_dir,
+                "feature-importance",
+                args.exp_name + "-" + str_time,
+                names[idx],
+            ),
+        )
 
 
 if __name__ == "__main__":

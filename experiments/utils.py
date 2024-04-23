@@ -1,5 +1,7 @@
+import os
 import json
 import string
+from PIL import Image
 import torch
 from torchvision import datasets, transforms
 from transformers import (
@@ -15,6 +17,38 @@ from models.vit import ViTForClassification
 def save_object(obj, filename):
     with open(filename, "wb") as outp:  # Overwrites any existing file.
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
+
+
+def load_raw_images(img_dir):
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(0.5, 0.5)]
+    )
+    image_extensions = (".jpg", ".jpeg", ".png", ".gif", ".bmp")
+    images = []
+    images_names = []
+    for filename in os.listdir(img_dir):
+        if os.path.isfile(
+            os.path.join(img_dir, filename)
+        ) and filename.lower().endswith(image_extensions):
+            image = Image.open(os.path.join(img_dir, filename)).convert("L")
+            if image.size != (28, 28):
+                image = image.resize((28, 28))
+            images.append(transform(image))
+            images_names.append(filename.split(".")[0])
+    return torch.stack(images), images_names
+
+
+def load_raw_sents(txt_dir):
+    txts = []
+    txts_names = []
+    for filename in os.listdir(txt_dir):
+        if os.path.isfile(
+            os.path.join(txt_dir, filename)
+        ) and filename.lower().endswith(".txt"):
+            with open(os.path.join(txt_dir, filename), "r", encoding="utf-8") as file:
+                txts.append(file.readlines()[0])
+            txts_names.append(filename.split(".")[0])
+    return txts, txts_names
 
 
 def prepare_data(
@@ -113,12 +147,6 @@ def load_bert_model(model_name, mask_or_cls):
         The loaded model.
     """
     if mask_or_cls == "mask":
-        if model_name.lower() == "bert-mini":
-            model_name = "prajjwal1/" + model_name
-        elif model_name.lower() in ["bert-base", "bert-tiny"]:
-            if model_name.lower() == "bert-tiny":
-                model_name = "gaunernst/" + model_name
-            model_name = model_name + "-uncased"
         bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
         bert_model = BertForMaskedLM.from_pretrained(model_name)
         return bert_tokenizer, bert_model

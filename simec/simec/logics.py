@@ -110,7 +110,7 @@ def pullback_eigenvalues(
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb, _ = model(input_emb)
+    output_emb = model(input_emb)[0]
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
@@ -129,6 +129,9 @@ def pullback_eigenvalues(
         input_simec=input_emb,
         g=g,
     )
+
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
     if keep_timing:
         save_object(
@@ -185,7 +188,7 @@ def explore(
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb, _ = model(input_emb)
+    output_emb = model(input_emb)[0]
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
@@ -211,7 +214,10 @@ def explore(
             tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
         eigenvalues, eigenvectors = pullback(
-            output_simec=output_emb[0, pred_id].squeeze(), input_simec=input_emb, g=g
+            output_simec=output_emb[0, pred_id].squeeze(),
+            input_simec=input_emb,
+            g=g,
+            eq_class_emb_ids=None if not eq_class_emb_ids else eq_class_emb_ids,
         )
 
         # Select a random eigenvectors corresponding to a null eigenvalue.
@@ -264,7 +270,7 @@ def explore(
 
         # Prepare for next iteration
         input_emb = input_emb.to(device).requires_grad_(True)
-        output_emb, _ = model(input_emb)
+        output_emb = model(input_emb)[0]
         if keep_timing:
             times["time"] += time.time() - tic
             if i % save_each == 0:
