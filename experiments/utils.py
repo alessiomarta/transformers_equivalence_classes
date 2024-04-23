@@ -8,11 +8,8 @@ from transformers import (
     BertTokenizerFast,
 )
 
-try:
-    import cPickle as pickle
-except ModuleNotFoundError:
-    import pickle
-from vit import ViTForClassfication
+import pickle
+from models.vit import ViTForClassification
 
 
 def save_object(obj, filename):
@@ -78,14 +75,14 @@ def load_model(model_path, config_path, device):
     else:
         checkpoint = torch.load(model_path)
     config = load_config(config_path)
-    model = ViTForClassfication(config)
+    model = ViTForClassification(config)
     model.load_state_dict(checkpoint)
     return model, config
 
 
 def deactivate_dropout_layers(model):
     """Deactivate the dropout layers of the model after training."""
-    if isinstance(model, ViTForClassfication):
+    if isinstance(model, ViTForClassification):
         model.embedding.dropout.p = 0.0
         for block in model.encoder.blocks:
             block.attention.attn_dropout.p = 0.0
