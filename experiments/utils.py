@@ -19,6 +19,12 @@ def save_object(obj, filename):
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 
+def load_object(filename):
+    with open(filename, "rb") as outp:
+        obj = pickle.load(outp)
+    return obj
+
+
 def load_raw_images(img_dir):
     transform = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize(0.5, 0.5)]
