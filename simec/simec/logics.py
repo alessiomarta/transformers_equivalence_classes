@@ -135,16 +135,23 @@ def pullback_eigenvalues(
 
     if keep_timing:
         save_object(
-            {"eigenvalues": eigenvalues, "time": time.time() - tic},
+            {
+                "input_embedding": input_emb,
+                "output_embedding": output_emb,
+                "eigenvalues": eigenvalues,
+                "time": time.time() - tic,
+            },
             os.path.join(out_dir, "pullback_eigenvalues.pkl"),
         )
     else:
         save_object(
-            {"eigenvalues": eigenvalues},
+            {
+                "input_embedding": input_emb,
+                "output_embedding": output_emb,
+                "eigenvalues": eigenvalues,
+            },
             os.path.join(out_dir, "pullback_eigenvalues.pkl"),
         )
-
-    return eigenvalues
 
 
 def explore(

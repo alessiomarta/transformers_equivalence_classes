@@ -287,7 +287,7 @@ def main():
         embedded_input = bert_model.bert.embeddings(**tokenized_input)
 
         # Run the algorithm
-        eigenvalues = pullback_eigenvalues(
+        pullback_eigenvalues(
             input_embedding=embedded_input,
             model=bert_model.bert.encoder,
             pred_id=keep_constant,

@@ -5,11 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import torch
 from simec.logics import pullback_eigenvalues
-from utils import (
-    load_raw_images,
-    deactivate_dropout_layers,
-    load_model,
-)
+from utils import load_raw_images, deactivate_dropout_layers, load_model, load_object
 
 
 # The operator 'aten::_linalg_eigh.eigenvalues' is not currently
@@ -24,38 +20,8 @@ from utils import (
 # export PYTORCH_ENABLE_MPS_FALLBACK=1
 
 
-def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
-    def pullback(input_simec, output_simec):
-        # Compute the pullback metric
-        jac = jacobian(output_simec, input_simec)
-        jac_t = torch.transpose(jac, -2, -1)
-        tmp = torch.bmm(jac, g)
-        if device.type == "mps":
-            # mps doen't support float64, must convert in float32
-            pullback_metric = torch.bmm(tmp, jac_t).type(torch.float32)
-        else:
-            # The conversion to double is done in order to avoid the following error:
-            # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
-            pullback_metric = torch.bmm(tmp, jac_t).type(torch.double)
-        return torch.linalg.eigh(pullback_metric, UPLO="U")
-
-    # Clone and require gradient of the embedded input and prepare for the first iteration
-    emb_inp_simec = model.embedding(model.patcher(starting_img)).requires_grad_(True)
-
-    # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    g = (
-        torch.eye(model.hidden_size)
-        .unsqueeze(0)
-        .repeat(model.embedding.num_patches + 1, 1, 1)
-    )
-
-    # Compute the output of the encoder. This is the output which we want to keep constant
-    encoder_output = model.encoder(emb_inp_simec)[0]
-
-    eigenvalues, _ = pullback(
-        output_simec=encoder_output[0, 0],
-        input_simec=emb_inp_simec,
-    )
+def interpret(model, output_embedding, starting_img, eigenvalues, img_out_dir="."):
+    pred = torch.argmax(model.classifier(output_embedding[:, 0]))
     max_eigenvalues = [
         torch.tensor(v) for v in torch.max(eigenvalues, dim=1).values.tolist()
     ]
@@ -66,7 +32,7 @@ def simec_feature_importance_vit(model, starting_img, device, img_out_dir="."):
         .repeat_interleave(2, dim=0)
         .repeat_interleave(2, dim=1)
     )
-    fname = os.path.join(img_out_dir, time.strftime("%Y%m%d-%H%M%S") + ".png")
+    fname = os.path.join(img_out_dir, f"{pred}.png")
     fig = plt.figure(figsize=(8, 4))
     gs = GridSpec(1, 3, width_ratios=[1, 1, 0.05])
     ax1, ax2, cax = (
@@ -121,6 +87,9 @@ def main():
 
     # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
+    res_path = os.path.join(
+        args.out_dir, "feature-importance", args.exp_name + "-" + str_time
+    )
 
     for idx, img in enumerate(images):
 
@@ -129,18 +98,31 @@ def main():
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
 
-        eigenvalues = pullback_eigenvalues(
+        pullback_eigenvalues(
             model=model.encoder,
             input_embedding=input_embedding,
             pred_id=0,
             device=device,
-            out_dir=os.path.join(
-                args.out_dir,
-                "feature-importance",
-                args.exp_name + "-" + str_time,
-                names[idx],
-            ),
+            out_dir=os.path.join(res_path, names[idx]),
         )
+
+    with torch.no_grad():
+        for img_dir in os.listdir(res_path):
+            if os.path.isdir(os.path.join(res_path, img_dir)):
+                for filename in os.listdir(os.path.join(res_path, img_dir)):
+                    if os.path.isfile(
+                        os.path.join(res_path, img_dir, filename)
+                    ) and filename.lower().endswith(".pkl"):
+                        res = load_object(os.path.join(res_path, img_dir, filename))
+                        interpret(
+                            model=model,
+                            output_embedding=res["output_embedding"],
+                            starting_img=images[
+                                [idx for idx, n in enumerate(names) if n == img_dir][0]
+                            ],
+                            eigenvalues=res["eigenvalues"],
+                            img_out_dir=os.path.join(res_path, img_dir, "images"),
+                        )
 
 
 if __name__ == "__main__":
