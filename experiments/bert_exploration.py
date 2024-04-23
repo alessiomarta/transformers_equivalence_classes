@@ -1,6 +1,6 @@
 import torch
-from simec.logics import jacobian
-from utils import load_bert_model, get_allowed_tokens
+import simec
+from .utils import load_bert_model, get_allowed_tokens
 
 
 def get_all_predictions(text_sentence, tokenizer, bert_model, closest_vectors=5):

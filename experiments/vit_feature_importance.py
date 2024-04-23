@@ -4,8 +4,8 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import torch
-from simec.logics import jacobian
-from utils import (
+import simec
+from .utils import (
     prepare_data,
     deactivate_dropout_layers,
     load_model,

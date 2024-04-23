@@ -316,7 +316,7 @@ class Encoder(nn.Module):
             return (x, all_attentions)
 
 
-class ViTForClassfication(nn.Module):
+class ViTForClassification(nn.Module):
     """
     The ViT model for classification.
     """

@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-from transformers_equivalence_classes.simec.logics import jacobian
-from transformers_equivalence_classes.experiments.utils import (
+import simec
+from .utils import (
     load_bert_model,
     get_allowed_tokens,
 )
