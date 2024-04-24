@@ -13,55 +13,9 @@ from utils import (
     get_allowed_tokens,
     deactivate_dropout_layers,
     load_raw_sents,
+    load_raw_sent,
+    load_object,
 )
-
-
-def get_all_predictions(text_sentence, tokenizer, bert_model, closest_vectors=5):
-    """Given a sentence with a masked token, yields the top closest_vectors predictions
-
-    Args:
-        text_sentence: A sentence with a mask token to be predicted
-        closest_vectors: The number of possibile predictions we want, in decreasing order of probability. Defaults to 5.
-
-    Returns:
-        #closest_vectors predictions.
-    """
-
-    allowed_tokens = get_allowed_tokens(tokenizer)
-
-    tokenized_input = tokenizer(
-        text_sentence,
-        return_tensors="pt",
-        return_attention_mask=False,
-        add_special_tokens=False,
-    )
-    mask_idx = [
-        i
-        for i, el in enumerate(tokenized_input["input_ids"].squeeze())
-        if el == tokenizer.mask_token_id
-    ]
-
-    with torch.no_grad():
-        predict = bert_model(**tokenized_input)[0]
-    predict[0, mask_idx, allowed_tokens] = predict[0, mask_idx, allowed_tokens] * 100
-    bert = tokenizer.convert_ids_to_tokens(
-        predict[0, mask_idx].topk(closest_vectors).indices.squeeze()
-    )
-
-    return {"bert": bert}
-
-
-def get_all_cls_predictions(text_sentence, tokenizer, bert_model, class_map):
-    tokenized_input = tokenizer(
-        text_sentence,
-        return_tensors="pt",
-        return_attention_mask=False,
-        add_special_tokens=False,
-    )
-
-    with torch.no_grad():
-        predict = bert_model(**tokenized_input)[0]
-    return {"bert": class_map[torch.argmax(predict).item()]}
 
 
 def save_colorbar(min_imp, max_imp, colormap, filename):
@@ -116,115 +70,68 @@ def create_html_with_highlighted_text(text, importance_levels, colors, colorbar_
     return html_content
 
 
-# -----------------------------------------------------------------------------------------
-
-
-def simec_bert(
+def interpret(
+    sent_filename,
     model,
+    input_embedding,
+    decoder,
     tokenizer,
-    input_text,
-    eq_class_words,
+    eigenvalues,
+    output_embedding,
+    keep_constant,
     mask_or_cls,
-    device,
     class_map=None,
-    delta=5.0,
-    threshold=1e-2,
-    num_iter=100,
-    print_every_n_iter=10,
+    txt_out_dir=".",
 ):
-    """Build a polygonal approximating the equivalence class of a token given an embedded input.
 
-    Args:
-        encoder: The encoder part of the model.
-        model_head: The prediction head of the model.
-        delta: The lenght of the segment we proceed along in each iteration.
-        threshold: The threshold parameter we use to separate null and and non-null eigenvalues.
-          Below the threshold we consider an eigenvalue as null.
-        num_iter: The number of iterations of the algorithm.
-        embedded_input: The embedding of a sentence.
-        eq_class_word_id: The id of the token of which we want to build the equivalence class.
-        id_masked_word: The id of the masked word, which we want to keep constant.
-        print_every_n_iter: The points built by the algorithm are printed every print_every_n_iter iterations.
-    """
-
-    # improvement: this could be batched, allowing for multiple sentences each time
-    def pullback(input_simec, output_simec):
-        # Compute the pullback metric
-        jac = jacobian(output_simec, input_simec)
-        jac_t = torch.transpose(jac, -2, -1)
-        tmp = torch.bmm(jac, g)
-        if device.type == "mps":
-            # mps doen't support float64, must convert in float32
-            pullback_metric = torch.bmm(tmp, jac_t).type(torch.float32)
-        else:
-            # The conversion to double is done in order to avoid the following error:
-            # The algorithm failed to converge because the input matrix is ill-conditioned or has too many repeated eigenvalues
-            pullback_metric = torch.bmm(tmp, jac_t).type(torch.double)
-        return torch.linalg.eigh(pullback_metric, UPLO="U")
-
-    # Build the embedding of the sentence
-    tokenized_input = tokenizer(
-        input_text,
-        return_tensors="pt",
-        return_attention_mask=False,
-        add_special_tokens=False,
+    txts_dir, sent_name = sent_filename
+    sentence = load_raw_sent(txts_dir, sent_name)
+    sentence = tokenizer.convert_ids_to_tokens(
+        tokenizer(
+            sentence[0],
+            return_tensors="pt",
+            return_attention_mask=False,
+            add_special_tokens=False,
+        )["input_ids"].squeeze()
     )
-    if mask_or_cls == "mask":
-        keep_constant = [
-            i
-            for i, el in enumerate(tokenized_input["input_ids"].squeeze())
-            if el == tokenizer.mask_token_id
-        ]  #!! only first item !!
-    elif mask_or_cls == "cls":
-        keep_constant = 0
-
-    embedded_input = model.bert.embeddings(**tokenized_input)
-
-    # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    g = (
-        torch.eye(model.config.hidden_size)
-        .unsqueeze(0)
-        .repeat(embedded_input.size(1), 1, 1)
-        .to(device)
-    )
-
-    # Clone and require gradient of the embedded input
-    emb_inp_simec = embedded_input.clone().to(device).requires_grad_(True)
-
-    # Compute the output of the encoder. The output corresponding to the [MASK]
-    # is what we want to keep constant
-    encoder_output = model.bert.encoder(emb_inp_simec)[0].to(device)
-
-    # Compute the pullback metric and its eigenvalues and eigenvectors
-    eigenvalues, _ = pullback(
-        output_simec=encoder_output[0, keep_constant].squeeze(),
-        input_simec=emb_inp_simec,
-    )
+    colorbar_img_path = "colorbar.png"
 
     max_eigenvalues = [
         torch.tensor(v).item() for v in torch.max(eigenvalues, dim=1).values.tolist()
     ]
 
-    sentence = tokenizer.convert_ids_to_tokens(tokenized_input["input_ids"].squeeze())
-    colorbar_img_path = "colorbar.png"
-
-    # Generate a color gradient from the 'Blues' colormap
     colors = generate_color_gradient(
         min(max_eigenvalues), max(max_eigenvalues), "Oranges"
     )
 
-    # Save colorbar image
-    save_colorbar(
-        min(max_eigenvalues), max(max_eigenvalues), "Oranges", colorbar_img_path
-    )
+    if not os.path.exists(txt_out_dir):
+        os.makedirs(txt_out_dir)
 
-    # Create HTML content
+    save_colorbar(
+        min(max_eigenvalues),
+        max(max_eigenvalues),
+        "Oranges",
+        os.path.join(txt_out_dir, colorbar_img_path),
+    )
     html_content = create_html_with_highlighted_text(
         sentence, max_eigenvalues, colors, colorbar_img_path
     )
 
-    # Write the HTML content to a file
-    with open("highlighted_text.html", "w") as file:
+    allowed_tokens = get_allowed_tokens(tokenizer)
+
+    if mask_or_cls == "mask":
+        mlm_pred = decoder(output_embedding)[0]
+        mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
+        str_pred = tokenizer.convert_ids_to_tokens(
+            [torch.argmax(mlm_pred[keep_constant]).item()]
+        )[0]
+    else:
+        mlm_pred = decoder(input_embedding)[0]
+        cls_pred = model.classifier(model.bert.pooler(output_embedding))
+        str_pred = class_map[torch.argmax(cls_pred).item()]
+
+    fname = os.path.join(txt_out_dir, f"{str_pred}.html")
+    with open(fname, "w") as file:
         file.write(html_content)
 
 
@@ -252,9 +159,10 @@ def main():
 
     # Select words to explore
     eq_class_words = json.load(open(os.path.join(args.txt_dir, "config.json"), "r"))
+    keep_constant_dict = eq_class_words.copy()
     class_map = None
     if args.objective == "cls":
-        class_map = {int(k): v for k, v in eq_class_words["class-map"]}
+        class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
 
     # load model
     bert_tokenizer, bert_model = load_bert_model(
@@ -264,6 +172,10 @@ def main():
 
     # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
+
+    res_path = os.path.join(
+        args.out_dir, "feature-importance", args.exp_name + "-" + str_time
+    )
 
     for idx, txt in enumerate(txts[:1]):
 
@@ -283,7 +195,7 @@ def main():
             ][
                 0
             ]  # only first MASK token
-
+        keep_constant_dict[names[idx]] = keep_constant
         embedded_input = bert_model.bert.embeddings(**tokenized_input)
 
         # Run the algorithm
@@ -299,6 +211,34 @@ def main():
                 names[idx],
             ),
         )
+
+    with torch.no_grad():
+        for txt_dir in os.listdir(res_path):
+            if os.path.isdir(os.path.join(res_path, txt_dir)):
+                for filename in os.listdir(os.path.join(res_path, txt_dir)):
+                    if os.path.isfile(
+                        os.path.join(res_path, txt_dir, filename)
+                    ) and filename.lower().endswith(".pkl"):
+                        res = load_object(os.path.join(res_path, txt_dir, filename))
+                        interpret(
+                            sent_filename=(args.txt_dir, txt_dir),
+                            model=bert_model,
+                            decoder=(
+                                bert_model.cls
+                                if args.objective == "mask"
+                                else bert_model.decoder
+                            ),
+                            eigenvalues=res["eigenvalues"],
+                            tokenizer=bert_tokenizer,
+                            class_map=class_map,
+                            input_embedding=res["input_embedding"],
+                            output_embedding=res["output_embedding"],
+                            mask_or_cls=args.objective,
+                            keep_constant=keep_constant_dict[txt_dir],
+                            txt_out_dir=os.path.join(
+                                res_path, txt_dir, "interpretation"
+                            ),
+                        )
 
 
 if __name__ == "__main__":
