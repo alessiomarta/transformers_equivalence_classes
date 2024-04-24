@@ -1,3 +1,8 @@
+"""
+A module for analyzing feature importance in Vision Transformer (ViT) models. This includes 
+functionality for visual interpretation of feature contributions and saving these visualizations.
+"""
+
 import argparse
 import os
 import time
@@ -5,10 +10,31 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import torch
 from simec.logics import pullback_eigenvalues
-from utils import load_raw_images, deactivate_dropout_layers, load_model, load_object
+from experiments_utils import (
+    load_raw_images,
+    deactivate_dropout_layers,
+    load_model,
+    load_object,
+)
 
 
-def interpret(model, output_embedding, starting_img, eigenvalues, img_out_dir="."):
+def interpret(
+    model: torch.nn.Module,
+    output_embedding: torch.Tensor,
+    starting_img: torch.Tensor,
+    eigenvalues: torch.Tensor,
+    img_out_dir: str = ".",
+) -> None:
+    """
+    Visualize and save the interpretation of an image's features based on the eigenvalues.
+
+    Args:
+        model: The ViT model used for classification.
+        output_embedding: The embedding produced by the model.
+        starting_img: The original image to be analyzed.
+        eigenvalues: The eigenvalues indicating feature importance.
+        img_out_dir: The directory where the output image will be saved.
+    """
     pred = torch.argmax(model.classifier(output_embedding[:, 0]))
     max_eigenvalues = [
         torch.tensor(v) for v in torch.max(eigenvalues, dim=1).values.tolist()
@@ -42,7 +68,7 @@ def interpret(model, output_embedding, starting_img, eigenvalues, img_out_dir=".
     plt.close()
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-name", type=str, required=True)
     parser.add_argument("--img-dir", type=str, required=True)
@@ -61,11 +87,9 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
 
-    # MNIST data
     images, names = load_raw_images(args.img_dir)
     images = images.to(device)
 
-    # load modified ViT model and deactivate it dropout layers
     model, _ = load_model(
         model_path=args.model_path,
         config_path=args.config_path,
@@ -73,19 +97,14 @@ def main():
     )
     deactivate_dropout_layers(model)
 
-    # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
         args.out_dir, "feature-importance", args.exp_name + "-" + str_time
     )
 
     for idx, img in enumerate(images):
-
-        # Clone and require gradient of the embedded input and prepare for the
-        # first iteration
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
-
         pullback_eigenvalues(
             model=model.encoder,
             input_embedding=input_embedding,

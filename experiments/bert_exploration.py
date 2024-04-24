@@ -1,10 +1,17 @@
+"""
+A module for exploring the input space of BERT models. It includes functionalities to visualize
+the impact of individual tokens and their equivalence classes on the model's predictions, 
+and to experiment with different configurations and equivalence classes.
+"""
+
 import argparse
 import os
 import time
 import json
+from transformers import BertTokenizerFast
 import torch
 from simec.logics import explore
-from utils import (
+from experiments_utils import (
     load_bert_model,
     get_allowed_tokens,
     deactivate_dropout_layers,
@@ -15,18 +22,37 @@ from utils import (
 
 
 def interpret(
-    sent_filename,
-    model,
-    decoder,
-    tokenizer,
-    input_embedding,
-    output_embedding,
-    eq_class_words_ids,
-    mask_or_cls,
-    iteration,
-    class_map=None,
-    txt_out_dir=".",
-):
+    sent_filename: tuple,
+    model: torch.nn.Module,
+    decoder: torch.nn.Module,
+    tokenizer: BertTokenizerFast,
+    input_embedding: torch.Tensor,
+    output_embedding: torch.Tensor,
+    eq_class_words_ids: dict,
+    mask_or_cls: str,
+    iteration: int,
+    class_map: dict = None,
+    txt_out_dir: str = ".",
+) -> None:
+    """
+    Interpret and document the exploration findings for a particular sentence and model configuration.
+
+    Args:
+        sent_filename: Tuple containing the directory and file name of the sentence.
+        model: The trained BERT model.
+        decoder: A module to decode the embeddings into predictions.
+        tokenizer: The tokenizer associated with the BERT model.
+        input_embedding: The input embedding tensor.
+        output_embedding: The output embedding tensor after passing through the model.
+        eq_class_words_ids: A dictionary with equivalence class word indices and the index to keep constant.
+        mask_or_cls: The exploration objective, either 'mask' for masked language modeling or 'cls' for classification.
+        iteration: The current iteration number of the exploration.
+        class_map: Optional mapping of class indices to class names for classification tasks.
+        txt_out_dir: Directory to save the interpretative results.
+
+    Returns:
+        None. Saves the results of the exploration in a text file.
+    """
     txts_dir, sent_name = sent_filename
     eq_class, keep_constant = (
         eq_class_words_ids["eq_class_w"],
@@ -35,11 +61,6 @@ def interpret(
     keep_constant_id, keep_constant_txt = keep_constant
     sentence = load_raw_sent(txts_dir, sent_name)
     allowed_tokens = get_allowed_tokens(tokenizer)
-    # compute predictions for model's objective
-    # if classification, also decode the modified input embedding
-    # to explore its equivalence class using an auxiliary decoder
-    # (in the mlm objective, the auxiliary decoder is the final classification
-    # layer projecting back to the vocabulary space)
     if mask_or_cls == "mask":
         mlm_pred = decoder(output_embedding)[0]
         mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
@@ -50,6 +71,7 @@ def interpret(
         mlm_pred = decoder(input_embedding)[0]
         cls_pred = model.classifier(model.bert.pooler(output_embedding))
         str_pred = class_map[torch.argmax(cls_pred).item()]
+
     str_res = f"{sentence[1]}: {sentence[0]}\n"
     str_res += f"Target token to keep constant: {keep_constant_txt}, predicted as '{str_pred}'\n"
     str_res += (
@@ -83,7 +105,7 @@ def interpret(
         file.write(str_res)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--objective", type=str, choices=["cls", "mask"], required=True)
@@ -106,66 +128,45 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
 
-    # TXT data
     txts, names = load_raw_sents(args.txt_dir)
-
-    # Select words to explore
     eq_class_words = json.load(open(os.path.join(args.txt_dir, "config.json"), "r"))
     eq_class_words_and_ids = eq_class_words.copy()
     class_map = None
     if args.objective == "cls":
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
 
-    # load model
     bert_tokenizer, bert_model = load_bert_model(
         args.model_name, mask_or_cls=args.objective
     )
     deactivate_dropout_layers(bert_model)
 
-    # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
-
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
     for idx, txt in enumerate(txts[:2]):
-
-        # Build the embedding of the sentence
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
         )
-        keep_constant = 0  # [CLS] embedding position
+        keep_constant = 0
         if args.objective == "mask":
             keep_constant = [
                 i
                 for i, el in enumerate(tokenized_input["input_ids"].squeeze())
                 if el == bert_tokenizer.mask_token_id
-            ][
-                0
-            ]  # only first MASK token
-
-        no_split_tokens = []
-        for split_w in bert_tokenizer.convert_ids_to_tokens(
-            tokenized_input["input_ids"].squeeze()
-        ):
-            if split_w[:2] == "##":
-                no_split_tokens[-1] += split_w[2:]
-            else:
-                no_split_tokens.append(split_w)
+            ][0]
         w_ids = [
             i
-            for i, el in enumerate(no_split_tokens)
+            for i, el in enumerate(tokenized_input.word_ids())
             if el in eq_class_words[names[idx]]
         ]
         eq_class_word_ids = [
             i for i, el in enumerate(tokenized_input.word_ids()) if el in w_ids
         ]
-
-        # saving this for later interpretation
         eq_class_words_and_ids[names[idx]] = {
             "keep_constant": (
                 keep_constant,
@@ -178,8 +179,6 @@ def main():
         }
 
         embedded_input = bert_model.bert.embeddings(**tokenized_input)
-
-        # Run the algorithm
         explore(
             same_equivalence_class=args.exp_type == "same",
             input_embedding=embedded_input,
@@ -192,10 +191,7 @@ def main():
             delta=args.delta,
             threshold=args.threshold,
             n_iterations=args.iter,
-            out_dir=os.path.join(
-                res_path,
-                names[idx],
-            ),
+            out_dir=os.path.join(res_path, names[idx]),
         )
 
     with torch.no_grad():

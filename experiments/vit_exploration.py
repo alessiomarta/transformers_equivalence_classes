@@ -1,3 +1,10 @@
+"""
+A module designed for exploration of feature importance in Vision Transformer (ViT) models.
+This includes functionality for interpreting and visualizing how specific patches of an image
+affect the model's predictions, and facilitates the exploration of input space to understand
+model behavior better.
+"""
+
 import argparse
 import os
 import json
@@ -9,18 +16,37 @@ from matplotlib.patches import Rectangle
 import torch
 from simec.logics import explore
 from models.vit import PatchDecoder
-from utils import load_raw_images, deactivate_dropout_layers, load_model, load_object
-
+from experiments_utils import (
+    load_raw_images,
+    deactivate_dropout_layers,
+    load_model,
+    load_object,
+)
 
 def interpret(
-    model,
-    decoder,
-    input_embedding,
-    output_embedding,
-    iteration,
-    eq_class_patch_ids,
-    img_out_dir=".",
-):
+    model: torch.nn.Module,
+    decoder: PatchDecoder,
+    input_embedding: torch.Tensor,
+    output_embedding: torch.Tensor,
+    iteration: int,
+    eq_class_patch_ids: list,
+    img_out_dir: str = "."
+) -> None:
+    """
+    Interpret and visualize the effects of specific patches on the model's predictions.
+
+    Args:
+        model: The ViT model used for predictions.
+        decoder: A decoder to reconstruct images from their embeddings.
+        input_embedding: The embedding of the input image.
+        output_embedding: The output embedding from the model after processing the input.
+        iteration: The iteration number of the exploration process.
+        eq_class_patch_ids: List of indices for patches that are equivalent in some respect.
+        img_out_dir: The directory to save the output images.
+
+    Returns:
+        None. Saves the interpreted image with marked patches to the specified directory.
+    """
     pred = torch.argmax(model.classifier(output_embedding[:, 0]))
     norm = Normalize(vmin=-1, vmax=1)
     fname = os.path.join(img_out_dir, f"{iteration}-{pred}.png")
@@ -55,12 +81,11 @@ def interpret(
     plt.savefig(fname)
     plt.close()
 
-
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
-    parser.add_argument("--keep-constant", default=0)
+    parser.add_argument("--keep-constant", type=int, default=0)
     parser.add_argument("--delta", type=float, default=9e-1)
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
@@ -72,22 +97,18 @@ def parse_args():
 
     args = parser.parse_args()
     if args.device is None:
-        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
+        args.device = torch.device("cuda" if torch.cuda.is available() else "cpu").type
     return args
-
 
 def main():
     args = parse_args()
     device = torch.device(args.device)
 
-    # MNIST data
     images, names = load_raw_images(args.img_dir)
     images = images.to(device)
 
-    # Select patches to explore
     eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
 
-    # load modified ViT model and deactivate it dropout layers
     model, _ = load_model(
         model_path=args.model_path,
         config_path=args.config_path,
@@ -95,21 +116,15 @@ def main():
     )
     deactivate_dropout_layers(model)
 
-    # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
-
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
     for idx, img in enumerate(images):
-
-        # Clone and require gradient of the embedded input and prepare for the
-        # first iteration
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
 
-        # input exploration
         explore(
             same_equivalence_class=args.exp_type == "same",
             input_embedding=input_embedding,
@@ -125,7 +140,6 @@ def main():
             out_dir=os.path.join(res_path, names[idx]),
         )
 
-    # define decoder to plot images from embeddings
     decoder = PatchDecoder(
         image_size=model.image_size,
         patch_size=model.embedding.patch_size,
@@ -149,7 +163,6 @@ def main():
                             eq_class_patch_ids=eq_class_patch[img_dir],
                             img_out_dir=os.path.join(res_path, img_dir, "images"),
                         )
-
 
 if __name__ == "__main__":
     main()

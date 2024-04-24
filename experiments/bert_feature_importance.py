@@ -1,3 +1,9 @@
+"""
+A module for analyzing feature importance in BERT models. This includes functionalities
+to highlight text based on importance levels, save these visualizations, and perform
+interpretations based on eigenvalues derived from the model's embeddings.
+"""
+
 import os
 import argparse
 import time
@@ -7,8 +13,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
+from transformers import BertTokenizerFast
 from simec.logics import pullback_eigenvalues
-from utils import (
+from experiments_utils import (
     load_bert_model,
     get_allowed_tokens,
     deactivate_dropout_layers,
@@ -18,26 +25,42 @@ from utils import (
 )
 
 
-def save_colorbar(min_imp, max_imp, colormap, filename):
-    # Create a figure and a single subplot
+def save_colorbar(min_imp: float, max_imp: float, colormap: str, filename: str) -> None:
+    """
+    Save a color gradient bar as an image file.
+
+    Args:
+        min_imp: Minimum importance level for color mapping.
+        max_imp: Maximum importance level for color mapping.
+        colormap: The name of the matplotlib colormap to use.
+        filename: Path to save the colorbar image.
+    """
     fig, ax = plt.subplots(figsize=(6, 1))
     fig.subplots_adjust(bottom=0.5)
 
     cmap = plt.get_cmap(colormap)
     norm = Normalize(vmin=min_imp, vmax=max_imp)
-
-    # Create a ScalarMappable and initialize a colorbar
     sm = ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = plt.colorbar(sm, cax=ax, orientation="horizontal")
     cbar.set_label("Importance Level")
 
-    # Save the colorbar as an image
     plt.savefig(filename)
     plt.close()
 
 
-def generate_color_gradient(min_imp, max_imp, colormap):
+def generate_color_gradient(min_imp: float, max_imp: float, colormap: str) -> list:
+    """
+    Generate a list of color values in RGBA format as a gradient from minimum to maximum importance levels.
+
+    Args:
+        min_imp: Minimum importance level for color mapping.
+        max_imp: Maximum importance level for color mapping.
+        colormap: The name of the matplotlib colormap to use.
+
+    Returns:
+        List of colors in RGBA format.
+    """
     cmap = plt.get_cmap(colormap)
     gradient = [
         cmap(float(x) / (max_imp - min_imp))
@@ -49,9 +72,22 @@ def generate_color_gradient(min_imp, max_imp, colormap):
     ]
 
 
-def create_html_with_highlighted_text(text, importance_levels, colors, colorbar_img):
+def create_html_with_highlighted_text(
+    text: list, importance_levels: list, colors: list, colorbar_img: str
+) -> str:
+    """
+    Create an HTML document with text highlighted based on importance levels.
+
+    Args:
+        text: List of words to highlight.
+        importance_levels: Corresponding importance levels for each word.
+        colors: List of colors for each importance level.
+        colorbar_img: Path to the colorbar image to include in the HTML.
+
+    Returns:
+        HTML content as a string.
+    """
     html_content = "<html><head><style>"
-    # Map importance levels to the gradient indexes
     color_index = {
         level: int(
             (level - min(importance_levels))
@@ -71,31 +107,44 @@ def create_html_with_highlighted_text(text, importance_levels, colors, colorbar_
 
 
 def interpret(
-    sent_filename,
-    model,
-    input_embedding,
-    decoder,
-    tokenizer,
-    eigenvalues,
-    output_embedding,
-    keep_constant,
-    mask_or_cls,
-    class_map=None,
-    txt_out_dir=".",
-):
+    sent_filename: tuple,
+    model: torch.nn.Module,
+    input_embedding: torch.Tensor,
+    decoder: callable,
+    tokenizer: BertTokenizerFast,
+    eigenvalues: torch.Tensor,
+    output_embedding: torch.Tensor,
+    keep_constant: int,
+    mask_or_cls: str,
+    class_map: dict = None,
+    txt_out_dir: str = ".",
+) -> None:
+    """
+    Perform interpretation of text based on model embeddings and eigenvalues, output results as HTML.
 
+    Args:
+        sent_filename: Tuple containing directory and sentence filename.
+        model: Loaded BERT model.
+        input_embedding: Input embeddings tensor.
+        decoder: Function or module to decode predictions.
+        tokenizer: Tokenizer for the model.
+        eigenvalues: Eigenvalues for each token's contribution to the embedding.
+        output_embedding: Output embeddings tensor.
+        keep_constant: Index to keep constant during interpretations.
+        mask_or_cls: Specify whether 'mask' for masked LM or 'cls' for classification.
+        class_map: Optional dictionary mapping class indices to names.
+        txt_out_dir: Directory to save the output HTML file.
+    """
     txts_dir, sent_name = sent_filename
-    sentence = load_raw_sent(txts_dir, sent_name)
-    sentence = tokenizer.convert_ids_to_tokens(
+    sentence, _ = load_raw_sent(txts_dir, sent_name)
+    sentence_tokens = tokenizer.convert_ids_to_tokens(
         tokenizer(
-            sentence[0],
+            sentence,
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
         )["input_ids"].squeeze()
     )
-    colorbar_img_path = "colorbar.png"
-
     max_eigenvalues = [
         torch.tensor(v).item() for v in torch.max(eigenvalues, dim=1).values.tolist()
     ]
@@ -111,10 +160,10 @@ def interpret(
         min(max_eigenvalues),
         max(max_eigenvalues),
         "Oranges",
-        os.path.join(txt_out_dir, colorbar_img_path),
+        os.path.join(txt_out_dir, "colorbar.png"),
     )
     html_content = create_html_with_highlighted_text(
-        sentence, max_eigenvalues, colors, colorbar_img_path
+        sentence_tokens, max_eigenvalues, colors, "colorbar.png"
     )
 
     allowed_tokens = get_allowed_tokens(tokenizer)
@@ -135,7 +184,7 @@ def interpret(
         file.write(html_content)
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--objective", type=str, choices=["cls", "mask"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
@@ -154,62 +203,46 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
 
-    # TXT data
     txts, names = load_raw_sents(args.txt_dir)
-
-    # Select words to explore
     eq_class_words = json.load(open(os.path.join(args.txt_dir, "config.json"), "r"))
     keep_constant_dict = eq_class_words.copy()
     class_map = None
     if args.objective == "cls":
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
 
-    # load model
     bert_tokenizer, bert_model = load_bert_model(
         args.model_name, mask_or_cls=args.objective
     )
     deactivate_dropout_layers(bert_model)
 
-    # for naming results directories
     str_time = time.strftime("%Y%m%d-%H%M%S")
-
     res_path = os.path.join(
         args.out_dir, "feature-importance", args.exp_name + "-" + str_time
     )
 
     for idx, txt in enumerate(txts[:1]):
-
-        # Build the embedding of the sentence
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
         )
-        keep_constant = 0  # [CLS] embedding position
+        keep_constant = 0  # Adjust based on model architecture and use case
         if args.objective == "mask":
             keep_constant = [
                 i
                 for i, el in enumerate(tokenized_input["input_ids"].squeeze())
                 if el == bert_tokenizer.mask_token_id
-            ][
-                0
-            ]  # only first MASK token
+            ][0]
         keep_constant_dict[names[idx]] = keep_constant
         embedded_input = bert_model.bert.embeddings(**tokenized_input)
 
-        # Run the algorithm
         pullback_eigenvalues(
             input_embedding=embedded_input,
             model=bert_model.bert.encoder,
             pred_id=keep_constant,
             device=device,
-            out_dir=os.path.join(
-                args.out_dir,
-                "feature-importance",
-                args.exp_name + "-" + str_time,
-                names[idx],
-            ),
+            out_dir=os.path.join(res_path, names[idx]),
         )
 
     with torch.no_grad():
