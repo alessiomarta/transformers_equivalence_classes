@@ -57,6 +57,15 @@ def load_raw_sents(txt_dir):
     return txts, txts_names
 
 
+def load_raw_sent(txt_dir, sentence_filename):
+    with open(
+        os.path.join(txt_dir, sentence_filename + ".txt"), "r", encoding="utf-8"
+    ) as file:
+        txt = file.readlines()[0]
+    txt_name = sentence_filename.split(".")[0]
+    return txt, txt_name
+
+
 def prepare_data(
     out_dir=".data/MNIST/",
     batch_size=128,
@@ -158,7 +167,8 @@ def load_bert_model(model_name, mask_or_cls):
         return bert_tokenizer, bert_model
     bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
     bert_model = BertForSequenceClassification.from_pretrained(model_name)
-    bert_model.decoder = BertForMaskedLM.from_pretrained("bert-base-uncased")
+    decoder = BertForMaskedLM.from_pretrained("bert-base-uncased")
+    bert_model.decoder = lambda x: decoder.cls(decoder.bert.encoder(x)[0])
     return bert_tokenizer, bert_model
 
 

@@ -8,18 +8,6 @@ from simec.logics import pullback_eigenvalues
 from utils import load_raw_images, deactivate_dropout_layers, load_model, load_object
 
 
-# The operator 'aten::_linalg_eigh.eigenvalues' is not currently
-# implemented for the MPS device. If you want this op to be added
-# in priority during the prototype phase of this feature, please
-# comment on https://github.com/pytorch/pytorch/issues/77764. As a
-# temporary fix, you can set the environment variable
-# `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op.
-# WARNING: this will be slower than running natively on MPS.
-# Exeption when executing
-# eigenvalues, eigenvectors = torch.linalg.eigh(pullback_metric, UPLO="U")
-# export PYTORCH_ENABLE_MPS_FALLBACK=1
-
-
 def interpret(model, output_embedding, starting_img, eigenvalues, img_out_dir="."):
     pred = torch.argmax(model.classifier(output_embedding[:, 0]))
     max_eigenvalues = [
