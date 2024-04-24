@@ -145,7 +145,7 @@ def main():
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
-    for idx, txt in enumerate(txts[:2]):
+    for idx, txt in enumerate(txts):
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",

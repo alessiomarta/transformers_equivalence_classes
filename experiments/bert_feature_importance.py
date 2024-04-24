@@ -220,7 +220,7 @@ def main():
         args.out_dir, "feature-importance", args.exp_name + "-" + str_time
     )
 
-    for idx, txt in enumerate(txts[:1]):
+    for idx, txt in enumerate(txts):
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
