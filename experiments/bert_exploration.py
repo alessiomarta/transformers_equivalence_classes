@@ -8,6 +8,8 @@ import argparse
 import os
 import time
 import json
+import itertools
+from numpy import random
 from transformers import BertTokenizerFast
 import torch
 from simec.logics import explore
@@ -21,6 +23,40 @@ from experiments_utils import (
 )
 
 
+def generate_combined_sentences(
+    original_tokenized_sentence: list,
+    eq_class_words: dict,
+    tokenizer: BertTokenizerFast,
+    max_num: int = None,
+):
+    words_lists = [
+        [k[1], *[el[1] for el in v if el[1] != k[1]]]
+        for k, v in list(eq_class_words.items())
+    ]
+    combinations = list(itertools.product(*words_lists))
+    if max_num:
+        combinations_ids = random.choice(
+            range(len(combinations)), max_num, replace=False
+        )
+        combinations = [c for i, c in enumerate(combinations) if i in combinations_ids]
+
+    mod_sentences, mod_sentences_idx = [], []
+    list_idx = [idx for idx, _ in list(eq_class_words.keys())]
+    print("Computing combinations ...")
+    for combo in combinations:
+        s = []
+        i = 0
+        for idx, w in enumerate(original_tokenized_sentence):
+            if idx in list_idx:
+                s.append(combo[i])
+                i += 1
+            else:
+                s.append(w)
+        mod_sentences.append(" ".join(s))
+        mod_sentences_idx.append(tokenizer.convert_tokens_to_ids(s))
+    return mod_sentences, torch.Tensor(mod_sentences_idx).int()
+
+
 def interpret(
     sent_filename: tuple,
     model: torch.nn.Module,
@@ -31,6 +67,9 @@ def interpret(
     eq_class_words_ids: dict,
     mask_or_cls: str,
     iteration: int,
+    device: torch.device,
+    top_k: int = 3,
+    max_n_comb: int = 100,
     class_map: dict = None,
     txt_out_dir: str = ".",
 ) -> None:
@@ -47,6 +86,7 @@ def interpret(
         eq_class_words_ids: A dictionary with word indices to explore the class and the index to keep constant.
         mask_or_cls: The exploration objective, either 'mask' for masked language modeling or 'cls' for classification.
         iteration: The current iteration number of the exploration.
+        top_k: The k most similar words in the dictionary to extract for the exploration.
         class_map: Optional mapping of class indices to class names for classification tasks.
         txt_out_dir: Directory to save the interpretative results.
 
@@ -69,55 +109,88 @@ def interpret(
         )["input_ids"].squeeze()
     )
     allowed_tokens = get_allowed_tokens(tokenizer)
-    if mask_or_cls == "mask":
-        mlm_pred = decoder(output_embedding)[0]
-        mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
-        str_pred = tokenizer.convert_ids_to_tokens(
-            [torch.argmax(mlm_pred[keep_constant_id]).item()]
-        )[0]
-    else:
-        mlm_pred = decoder(input_embedding)[0]
-        cls_pred = model.classifier(model.bert.pooler(output_embedding))
-        str_pred = class_map[torch.argmax(cls_pred).item()]
+
+    model.eval()
+    with torch.no_grad():
+        if mask_or_cls == "mask":
+            mlm_pred = decoder(output_embedding)[0]
+            mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
+            str_pred = tokenizer.convert_ids_to_tokens(
+                [torch.argmax(mlm_pred[keep_constant_id]).item()]
+            )[0]
+        else:
+            mlm_pred = decoder(input_embedding)[0]
+            cls_pred = model.classifier(model.bert.pooler(output_embedding))
+            str_pred = class_map[torch.argmax(cls_pred).item()]
+
+    select_eq_class = {}
+    for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
+        if w not in ["[CLS]", "[MASK]"]:
+            select_eq_class[(idx, w)] = tuple(
+                zip(
+                    mlm_pred[idx].topk(top_k).values.tolist(),
+                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(5).indices),
+                )
+            )
+
+    combined_sentences, combined_sentences_ids = generate_combined_sentences(
+        original_tokenized_sentence=original_sentence.copy(),
+        eq_class_words=select_eq_class,
+        tokenizer=tokenizer,
+        max_num=100,
+    )
+    with torch.no_grad():
+        if mask_or_cls == "mask":
+            mlm_pred = model(combined_sentences_ids.to(device))[0]
+            mlm_pred[:, :, allowed_tokens] = mlm_pred[:, :, allowed_tokens] * 100
+            str_preds_combined = tokenizer.convert_ids_to_tokens(
+                torch.argmax(mlm_pred[:, keep_constant_id], dim=-1)
+            )
+        else:
+            cls_pred = model(combined_sentences_ids.to(device))[0]
+            str_preds_combined = [
+                class_map[r.item()] for r in torch.argmax(cls_pred, dim=-1)
+            ]
 
     json_result = {}
     json_result["sentence_id"] = sentence[1]
     json_result["sentence"] = sentence[0]
+    json_result["tokenized_original_sentence"] = original_sentence
     json_result["target_token_id"] = keep_constant_id
     json_result["target_token"] = keep_constant_txt
     json_result["target_token_pred"] = str_pred
-    json_result["eq_class_words"] = {}
-    for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
-        if w not in ["[CLS]", "[MASK]"]:
-            json_result["eq_class_words"][(idx, w)] = tuple(
-                zip(
-                    mlm_pred[idx].topk(5).values.tolist(),
-                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(5).indices),
-                )
-            )
+    json_result["eq_class_words"] = {
+        f"{k[0]}_{k[1]}": v for k, v in list(select_eq_class.items())
+    }
+    json_result["alternative_prompts"] = tuple(
+        zip(combined_sentences, str_preds_combined)
+    )
+
+    max_width = max(len(str(r[0])) for r in json_result["alternative_prompts"])
+
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
         + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
-        + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(json_result['eq_class_words'].keys()))}\n"
+        + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(select_eq_class.keys()))}\n"
         + "\n".join(
-            f"Equivalence class for '{k[1]}' (first 5 words): {', '.join(el[1] for el in v)}"
-            for k, v in list(json_result["eq_class_words"].items())
+            f"Equivalence class for '{k[1]}' (first {top_k} words): {', '.join(el[1] for el in v)}"
+            for k, v in list(select_eq_class.items())
         )
-    )
-
-    modified_sentence = tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred, dim=-1))
-    for i, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
-        if w not in ["[CLS]"]:
-            original_sentence[i] = modified_sentence[i]
-    str_res += "New sentence with argmax words for each word explored: " + " ".join(
-        original_sentence
+        + "\n\n Alternative prompts and respective predictions\n"
+        + "\n".join(
+            f"{r[0]:<{max_width}}\t{str(r[1]):>10}"
+            for r in json_result["alternative_prompts"]
+        )
     )
 
     if not os.path.exists(txt_out_dir):
         os.makedirs(txt_out_dir)
     fname = os.path.join(txt_out_dir, f"{iteration}-{str_pred}.txt")
+    json_fname = os.path.join(txt_out_dir, f"{iteration}-{str_pred}.json")
     with open(fname, "w") as file:
         file.write(str_res)
+    with open(json_fname, "w") as file:
+        json.dump(json_result, file)
 
 
 def parse_args() -> argparse.Namespace:
@@ -129,6 +202,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
     parser.add_argument("--txt-dir", type=str, required=True)
+    parser.add_argument("--max-combinations", type=int, default=100)
+    parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--device", type=str)
@@ -156,7 +231,6 @@ def main():
     deactivate_dropout_layers(bert_model)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    str_time = "20240426-100019"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -193,22 +267,21 @@ def main():
                 for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
             ],
         }
-        if False:
-            embedded_input = bert_model.bert.embeddings(**tokenized_input)
-            explore(
-                same_equivalence_class=args.exp_type == "same",
-                input_embedding=embedded_input,
-                model=bert_model.bert.encoder,
-                eq_class_emb_ids=(
-                    eq_class_word_ids if len(eq_class_word_ids) > 0 else None
-                ),
-                pred_id=keep_constant,
-                device=device,
-                delta=args.delta,
-                threshold=args.threshold,
-                n_iterations=args.iter,
-                out_dir=os.path.join(res_path, names[idx]),
-            )
+        embedded_input = bert_model.bert.embeddings(**tokenized_input)
+        explore(
+            same_equivalence_class=args.exp_type == "same",
+            input_embedding=embedded_input,
+            model=bert_model.bert.encoder,
+            eq_class_emb_ids=(
+                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+            ),
+            pred_id=keep_constant,
+            device=device,
+            delta=args.delta,
+            threshold=args.threshold,
+            n_iterations=args.iter,
+            out_dir=os.path.join(res_path, names[idx]),
+        )
 
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
@@ -236,6 +309,9 @@ def main():
                             txt_out_dir=os.path.join(
                                 res_path, txt_dir, "interpretation"
                             ),
+                            device=device,
+                            max_n_comb=args.max_combinations,
+                            top_k=args.top_k,
                         )
 
 
