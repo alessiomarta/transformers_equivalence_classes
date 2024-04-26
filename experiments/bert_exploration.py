@@ -80,26 +80,31 @@ def interpret(
         cls_pred = model.classifier(model.bert.pooler(output_embedding))
         str_pred = class_map[torch.argmax(cls_pred).item()]
 
-    str_res = f"{sentence[1]}: {sentence[0]}\n"
-    str_res += f"Target token to keep constant: {keep_constant_txt}, predicted as '{str_pred}'\n"
-    str_res += (
-        "Equivalence class exploration for the following words: "
-        + ", ".join(
-            w
-            for _, w in (
-                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
-            )
-            if w not in ["[CLS]", "[MASK]"]
-        )
-        + "\n"
-    )
+    json_result = {}
+    json_result["sentence_id"] = sentence[1]
+    json_result["sentence"] = sentence[0]
+    json_result["target_token_id"] = keep_constant_id
+    json_result["target_token"] = keep_constant_txt
+    json_result["target_token_pred"] = str_pred
+    json_result["eq_class_words"] = {}
     for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
         if w not in ["[CLS]", "[MASK]"]:
-            str_res += f"Equivalence class for '{w}' (first 5 words): "
-            similar_words = tokenizer.convert_ids_to_tokens(
-                mlm_pred[idx].topk(5).indices
+            json_result["eq_class_words"][(idx, w)] = tuple(
+                zip(
+                    mlm_pred[idx].topk(5).values.tolist(),
+                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(5).indices),
+                )
             )
-            str_res += ", ".join(similar_words) + "\n"
+    str_res = (
+        f"{json_result['sentence_id']}: {json_result['sentence']}\n"
+        + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
+        + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(json_result['eq_class_words'].keys()))}\n"
+        + "\n".join(
+            f"Equivalence class for '{k[1]}' (first 5 words): {', '.join(el[1] for el in v)}"
+            for k, v in list(json_result["eq_class_words"].items())
+        )
+    )
+
     modified_sentence = tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred, dim=-1))
     for i, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
         if w not in ["[CLS]"]:
