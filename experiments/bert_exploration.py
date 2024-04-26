@@ -155,7 +155,7 @@ def interpret(
         original_tokenized_sentence=original_sentence.copy(),
         eq_class_words=select_eq_class,
         tokenizer=tokenizer,
-        max_num=100,
+        max_num=max_n_comb,
     )
     with torch.no_grad():
         if mask_or_cls == "mask":
