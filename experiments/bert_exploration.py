@@ -48,10 +48,13 @@ def generate_combined_sentences(
     ]
     combinations = list(itertools.product(*words_lists))
     if max_num:
-        combinations_ids = random.choice(
-            range(len(combinations)), max_num, replace=False
-        )
-        combinations = [c for i, c in enumerate(combinations) if i in combinations_ids]
+        if max_num >= len(combinations):
+            combinations_ids = random.choice(
+                range(len(combinations)), max_num, replace=False
+            )
+            combinations = [
+                c for i, c in enumerate(combinations) if i in combinations_ids
+            ]
 
     mod_sentences, mod_sentences_idx = [], []
     list_idx = [idx for idx, _ in list(eq_class_words.keys())]
