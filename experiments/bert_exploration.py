@@ -28,7 +28,20 @@ def generate_combined_sentences(
     eq_class_words: dict,
     tokenizer: BertTokenizerFast,
     max_num: int = None,
-):
+) -> tuple:
+    """
+    Generate new sentences by combining tokens from equivalent class words.
+
+    Args:
+        original_tokenized_sentence (list): The original tokenized sentence.
+        eq_class_words (dict): A dictionary mapping indices to lists of equivalent tokens.
+        tokenizer (BertTokenizerFast): The tokenizer used for BERT model.
+        max_num (int, optional): Maximum number of sentence combinations to generate.
+
+    Returns:
+        tuple: Returns a tuple of two lists; the first contains the modified sentences as strings,
+               and the second contains their token ids as a torch Tensor.
+    """
     words_lists = [
         [k[1], *[el[1] for el in v if el[1] != k[1]]]
         for k, v in list(eq_class_words.items())
@@ -74,24 +87,29 @@ def interpret(
     txt_out_dir: str = ".",
 ) -> None:
     """
-    Interpret and document the exploration findings for a particular sentence and model configuration.
+    Interpret the results of sentence exploration and generate a report.
+
+    This function analyzes the impact of individual tokens and their equivalence classes
+    on the model's predictions. It saves the findings in both text and JSON formats.
 
     Args:
-        sent_filename: Tuple containing the directory and file name of the sentence.
-        model: The trained BERT model.
-        decoder: A module to decode the embeddings into predictions.
-        tokenizer: The tokenizer associated with the BERT model.
-        input_embedding: The input embedding tensor.
-        output_embedding: The output embedding tensor after passing through the model.
-        eq_class_words_ids: A dictionary with word indices to explore the class and the index to keep constant.
-        mask_or_cls: The exploration objective, either 'mask' for masked language modeling or 'cls' for classification.
-        iteration: The current iteration number of the exploration.
-        top_k: The k most similar words in the dictionary to extract for the exploration.
-        class_map: Optional mapping of class indices to class names for classification tasks.
-        txt_out_dir: Directory to save the interpretative results.
+        sent_filename (tuple): Tuple containing the directory and file name of the sentence.
+        model (torch.nn.Module): The trained BERT model.
+        decoder (torch.nn.Module): A module to decode the embeddings into predictions.
+        tokenizer (BertTokenizerFast): The tokenizer associated with the BERT model.
+        input_embedding (torch.Tensor): The input embedding tensor.
+        output_embedding (torch.Tensor): The output embedding tensor after passing through the model.
+        eq_class_words_ids (dict): A dictionary mapping words to their equivalence classes and indices.
+        mask_or_cls (str): The exploration objective, 'mask' for masked language modeling or 'cls' for classification.
+        iteration (int): The current iteration number of the exploration.
+        device (torch.device): The device (CPU/GPU) on which the computation is to be performed.
+        top_k (int): Number of top predictions to consider for each token in the equivalence class.
+        max_n_comb (int): Maximum number of token combinations to generate and analyze.
+        class_map (dict, optional): Mapping of class indices to class names, used for classification tasks.
+        txt_out_dir (str): Directory where the interpretative results will be saved.
 
     Returns:
-        None. Saves the results of the exploration in a text file.
+        None. This function saves the exploration results to files and does not return any value.
     """
     txts_dir, sent_name = sent_filename
     eq_class, keep_constant = (
