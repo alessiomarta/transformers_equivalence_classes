@@ -291,7 +291,7 @@ def get_allowed_tokens(tokenizer: BertTokenizerFast) -> List[int]:
             is_punctuation(token)
             or token in tokenizer.all_special_tokens
             or token.startswith("[unused")
-            or token.startswith("##")
-            or token.isdigit()
+            # or token.startswith("##")
+            # or token.isdigit()
         )
     ]
