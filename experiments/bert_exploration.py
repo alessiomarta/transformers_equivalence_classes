@@ -44,7 +44,7 @@ def interpret(
         tokenizer: The tokenizer associated with the BERT model.
         input_embedding: The input embedding tensor.
         output_embedding: The output embedding tensor after passing through the model.
-        eq_class_words_ids: A dictionary with equivalence class word indices and the index to keep constant.
+        eq_class_words_ids: A dictionary with word indices to explore the class and the index to keep constant.
         mask_or_cls: The exploration objective, either 'mask' for masked language modeling or 'cls' for classification.
         iteration: The current iteration number of the exploration.
         class_map: Optional mapping of class indices to class names for classification tasks.
@@ -60,6 +60,14 @@ def interpret(
     )
     keep_constant_id, keep_constant_txt = keep_constant
     sentence = load_raw_sent(txts_dir, sent_name)
+    original_sentence = tokenizer.convert_ids_to_tokens(
+        tokenizer(
+            sentence[0],
+            return_tensors="pt",
+            return_attention_mask=False,
+            add_special_tokens=False,
+        )["input_ids"].squeeze()
+    )
     allowed_tokens = get_allowed_tokens(tokenizer)
     if mask_or_cls == "mask":
         mlm_pred = decoder(output_embedding)[0]
@@ -76,24 +84,26 @@ def interpret(
     str_res += f"Target token to keep constant: {keep_constant_txt}, predicted as '{str_pred}'\n"
     str_res += (
         "Equivalence class exploration for the following words: "
-        + ", ".join([w for i, w in eq_class])
+        + ", ".join(
+            w
+            for _, w in (
+                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
+            )
+            if w not in ["[CLS]", "[MASK]"]
+        )
         + "\n"
     )
-    for idx, w in eq_class:
-        str_res += f"Equivalence class for '{w}' (first 5 words): "
-        similar_words = tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(5).indices)
-        str_res += ", ".join(similar_words) + "\n"
+    for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
+        if w not in ["[CLS]", "[MASK]"]:
+            str_res += f"Equivalence class for '{w}' (first 5 words): "
+            similar_words = tokenizer.convert_ids_to_tokens(
+                mlm_pred[idx].topk(5).indices
+            )
+            str_res += ", ".join(similar_words) + "\n"
     modified_sentence = tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred, dim=-1))
-    original_sentence = tokenizer.convert_ids_to_tokens(
-        tokenizer(
-            sentence[0],
-            return_tensors="pt",
-            return_attention_mask=False,
-            add_special_tokens=False,
-        )["input_ids"].squeeze()
-    )
-    for i, _ in eq_class:
-        original_sentence[i] = modified_sentence[i]
+    for i, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
+        if w not in ["[CLS]"]:
+            original_sentence[i] = modified_sentence[i]
     str_res += "New sentence with argmax words for each word explored: " + " ".join(
         original_sentence
     )
@@ -141,11 +151,12 @@ def main():
     deactivate_dropout_layers(bert_model)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
+    str_time = "20240426-100019"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
-    for idx, txt in enumerate(txts):
+    for idx, txt in enumerate(txts[:1]):
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
@@ -177,22 +188,22 @@ def main():
                 for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
             ],
         }
-
-        embedded_input = bert_model.bert.embeddings(**tokenized_input)
-        explore(
-            same_equivalence_class=args.exp_type == "same",
-            input_embedding=embedded_input,
-            model=bert_model.bert.encoder,
-            eq_class_emb_ids=(
-                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
-            ),
-            pred_id=keep_constant,
-            device=device,
-            delta=args.delta,
-            threshold=args.threshold,
-            n_iterations=args.iter,
-            out_dir=os.path.join(res_path, names[idx]),
-        )
+        if False:
+            embedded_input = bert_model.bert.embeddings(**tokenized_input)
+            explore(
+                same_equivalence_class=args.exp_type == "same",
+                input_embedding=embedded_input,
+                model=bert_model.bert.encoder,
+                eq_class_emb_ids=(
+                    eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+                ),
+                pred_id=keep_constant,
+                device=device,
+                delta=args.delta,
+                threshold=args.threshold,
+                n_iterations=args.iter,
+                out_dir=os.path.join(res_path, names[idx]),
+            )
 
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):

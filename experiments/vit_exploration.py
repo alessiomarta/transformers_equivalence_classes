@@ -41,7 +41,7 @@ def interpret(
         input_embedding: The embedding of the input image.
         output_embedding: The output embedding from the model after processing the input.
         iteration: The iteration number of the exploration process.
-        eq_class_patch_ids: List of indices for patches that are equivalent in some respect.
+        eq_class_patch_ids: List of indices for patches to explore.
         img_out_dir: The directory to save the output images.
 
     Returns:
