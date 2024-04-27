@@ -6,7 +6,7 @@ setup(
     description='Python package for SIMEC and SIMEXP algorithms', 
     author='Elisabetta Rocchetti', 
     author_email='elisabetta.rocchetti@unimi.it', 
-    packages=[], 
+    packages=["simec"], 
     install_requires=[ 
         'torch' 
     ], 
