@@ -1,7 +1,7 @@
 import time, json, os, argparse
 import torch
 from torchvision import datasets, transforms
-from .vit import ViTForClassification
+from vit import ViTForClassification
 
 
 CONFIG = {
@@ -27,7 +27,7 @@ def save_experiment(
     train_losses,
     test_losses,
     accuracies,
-    base_dir="/content/drive/MyDrive/mnist_experiments",
+    base_dir="../../mnist_experiments",
 ):
     outdir = os.path.join(base_dir, experiment_name)
     os.makedirs(outdir, exist_ok=True)
@@ -52,7 +52,7 @@ def save_experiment(
 
 
 def save_checkpoint(
-    experiment_name, model, epoch, base_dir="/content/drive/MyDrive/mnist_experiments"
+    experiment_name, model, epoch, base_dir="../../mnist_experiments"
 ):
     outdir = os.path.join(base_dir, experiment_name)
     os.makedirs(outdir, exist_ok=True)
@@ -79,7 +79,7 @@ class Trainer:
         epochs,
         save_model_every_n_epochs=0,
         measure_time=False,
-        base_dir="/content/drive/MyDrive/mnist_experiments",
+        base_dir="../../mnist_experiments",
     ):
         """
         Train the model for the specified number of epochs.
@@ -172,7 +172,7 @@ def prepare_data(
     num_workers=2,
     train_sample_size=None,
     test_sample_size=None,
-    data_dir="/content/drive/MyDrive/mnist_data",
+    data_dir="../../mnist_data",
 ):
     mean, std = (0.5,), (0.5,)
     transform = transforms.Compose(

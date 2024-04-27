@@ -97,7 +97,7 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
     if args.device is None:
-        args.device = torch.device("cuda" if torch.cuda.is available() else "cpu").type
+        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
     return args
 
 def main():
