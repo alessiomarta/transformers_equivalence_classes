@@ -179,6 +179,14 @@ def interpret(
         cls_pred = model.classifier(model.bert.pooler(output_embedding))
         str_pred = class_map[torch.argmax(cls_pred).item()]
 
+    json_result = {}
+    json_result["tokens_imp"] = tuple(zip(max_eigenvalues, sentence_tokens))
+    json_result["prediction"] = str_pred
+
+    json_fname = os.path.join(txt_out_dir, f"{str_pred}.json")
+    with open(json_fname, "w") as file:
+        json.dump(json_result, file)
+
     fname = os.path.join(txt_out_dir, f"{str_pred}.html")
     with open(fname, "w") as file:
         file.write(html_content)
