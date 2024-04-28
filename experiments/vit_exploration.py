@@ -138,6 +138,7 @@ def main():
             ),
             device=device,
             out_dir=os.path.join(res_path, names[idx]),
+            keep_timing = True
         )
 
     decoder = PatchDecoder(
