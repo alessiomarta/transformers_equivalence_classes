@@ -13,6 +13,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
+    parser.add_argument("--img-dir", type = str, required = True)
     parser.add_argument("--device", type=str)
     parser.add_argument("--timer", type=float, required=True)
     parser.add_argument("--pert-step", type=float, required=True)
@@ -71,9 +72,11 @@ def main():
     initial_time = args.time
     step = args.pert_step
     img_out_dir = args.out_dir
+    img_in_dir = args.img_dir
 
-    # MNIST data
-    trainloader, _ = prepare_data(test=False)
+    # Load images
+    images, names = load_raw_images(args.img_dir)
+    images = images.to(device)
 
     model, _ = load_model(
         model_path=model_path,
@@ -83,49 +86,45 @@ def main():
 
     deactivate_dropout_layers(model)
 
-    # Get a mini-batch of train data loaders
-    imgs, _ = next(iter(trainloader))
-    imgs = imgs.to(device)
-    # take first image keeping batch dimension
-    img = imgs[0].unsqueeze(0)
+    
+    for name, img in zip(names, images):
+        # Initialize mean and standard deviation of noise to 0 and 1
+        mu = 0
+        sd = 1
+        direction = torch.normal(mean=mu, std=sd, size=img.shape).flatten()
+        count = 0
+        norm = Normalize(vmin=-1, vmax=1)
 
-    # Initialize mean and standard deviation of noise to 0 and 1
-    mu = 0
-    sd = 1
-    direction = torch.normal(mean=mu, std=sd, size=img.shape).flatten()
-    count = 0
-    norm = Normalize(vmin=-1, vmax=1)
+        timer = initial_time
 
-    timer = initial_time
+        while timer > 0:
 
-    while timer > 0:
+            tic = time()
 
-        tic = time()
+            logits = model(img).flatten().numpy()
+            y = np.argmax(logits)
 
-        logits = model(img).flatten().numpy()
-        y = np.argmax(logits)
+            img, direction = perturbation(
+                model=model, starting_img=img, step=step, direction=direction, y=y
+            )
 
-        img, direction = perturbation(
-            model=model, starting_img=img, step=step, direction=direction, y=y
-        )
+            timedelta = time() - tic
+            timer -= timedelta
 
-        timedelta = time() - tic
-        timer -= timedelta
+            fname = os.path.join(img_out_dir, str(count) + ".png")
+            _, ax = plt.subplots()
+            ax.imshow(img.squeeze().cpu().numpy(), cmap="gray", norm=norm)
+            if not os.path.exists(img_out_dir):
+                os.makedirs(img_out_dir)
+            plt.savefig(fname)
+            plt.close()
 
-        fname = os.path.join(img_out_dir, str(count) + ".png")
-        _, ax = plt.subplots()
-        ax.imshow(img.squeeze().cpu().numpy(), cmap="gray", norm=norm)
-        if not os.path.exists(img_out_dir):
-            os.makedirs(img_out_dir)
-        plt.savefig(fname)
-        plt.close()
+            count += 1
 
-        count += 1
+        stats = {"time": int(initial_time - timer), "count": count}
 
-    stats = {"time": int(initial_time - timer), "count": count}
-
-    with open(os.path.join(img_out_dir, "stats.json"), "w") as f:
-        json.dump(stats, f)
+        with open(os.path.join(img_out_dir, name, "stats.json"), "w") as f:
+            json.dump(stats, f)
 
 
 if __name__ == "__main__":
