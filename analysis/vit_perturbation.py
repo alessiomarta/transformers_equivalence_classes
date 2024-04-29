@@ -3,6 +3,7 @@ import argparse
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 from time import time
 import os
 import json
