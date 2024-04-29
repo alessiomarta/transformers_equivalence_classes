@@ -143,6 +143,11 @@ def main():
 
         stats = {"time": int(initial_time - timer), "count": count}
 
+        print(stats)
+
+        if not os.path.exists(os.path.join(img_out_dir, name)):
+            os.makedirs(os.path.join(img_out_dir, name))
+
         with open(os.path.join(img_out_dir, name, "stats.json"), "w") as f:
             json.dump(stats, f)
 
