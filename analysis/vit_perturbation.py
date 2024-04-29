@@ -70,7 +70,7 @@ def main():
     model_path = args.model_path
     config_path = args.config_path
     device = torch.device(args.device)
-    initial_time = args.time
+    initial_time = args.timer
     step = args.pert_step
     img_out_dir = args.out_dir
     img_in_dir = args.img_dir
