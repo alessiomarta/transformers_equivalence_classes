@@ -256,7 +256,7 @@ def explore(
                 )
             else:
                 input_emb[0] = input_emb[0] + eigenvecs * delta
-            distance += eigenvals * delta
+            distance += eigenvals.cpu() * delta
 
             if i % save_each == 0:
                 if keep_timing:
