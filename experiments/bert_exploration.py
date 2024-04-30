@@ -48,7 +48,7 @@ def generate_combined_sentences(
     ]
     combinations = list(itertools.product(*words_lists))
     if max_num:
-        if max_num >= len(combinations):
+        if max_num <= len(combinations):
             combinations_ids = random.choice(
                 range(len(combinations)), max_num, replace=False
             )
