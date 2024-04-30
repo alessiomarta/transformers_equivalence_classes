@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
-from time import time
+from time import time, sleep
 import os
 import json
 
@@ -70,9 +70,7 @@ def perturbation(model, starting_img, step, direction, y, device):
 
         iter += 1
 
-    print("Generated 1 image")
-
-    generated = int(iter < 100)
+    generated = int(new_y == y)
 
     return new_img, new_direction, generated
 
@@ -89,7 +87,7 @@ def main():
     img_in_dir = args.img_dir
 
     # Load images
-    images, names = load_raw_images(args.img_dir)
+    images, names = load_raw_images(img_in_dir)
     images = images.to(device)
 
     model, _ = load_model(
@@ -105,13 +103,15 @@ def main():
     for name, img in zip(names, images):
 
         print("Image:", name)
+        if not os.path.exists(os.path.join(img_out_dir, name)):
+            os.makedirs(os.path.join(img_out_dir, name))
 
         # Initialize mean and standard deviation of noise to 0 and 1
         mu = 0
         sd = 1
         direction = torch.normal(mean=mu, std=sd, size=img.shape).flatten().to(device)
         count = 0
-        norm = Normalize(vmin=-1, vmax=1)
+        norm = Normalize(vmin=0, vmax=1)
 
         timer = initial_time
 
@@ -124,6 +124,10 @@ def main():
             logits = model(img.unsqueeze(0))[0].flatten().cpu().detach().numpy()
             y = np.argmax(logits)
 
+            # Reinitialize at random to allow for exploration
+            if np.random.rand() >= 0.8:
+                direction = torch.normal(mean=mu, std=sd, size=img.shape).flatten().to(device)
+
             img, direction, generated = perturbation(
                 model=model, starting_img=img, step=step, direction=direction, y=y, device = device
             )
@@ -131,22 +135,19 @@ def main():
             timedelta = time() - tic
             timer -= timedelta
 
-            fname = os.path.join(img_out_dir, str(count) + ".png")
+            fname = os.path.join(img_out_dir, name, str(count) + ".png")
             _, ax = plt.subplots()
             ax.imshow(img.squeeze().cpu().numpy(), cmap="gray", norm=norm)
-            if not os.path.exists(img_out_dir):
-                os.makedirs(img_out_dir)
             plt.savefig(fname)
             plt.close()
 
             count += generated
+            if generated:
+                print(f"Generated {count} images")
 
         stats = {"time": int(initial_time - timer), "count": count}
 
         print(stats)
-
-        if not os.path.exists(os.path.join(img_out_dir, name)):
-            os.makedirs(os.path.join(img_out_dir, name))
 
         with open(os.path.join(img_out_dir, name, "stats.json"), "w") as f:
             json.dump(stats, f)

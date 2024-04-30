@@ -240,11 +240,11 @@ def explore(
                     id_eigen = torch.randint(0, number_eigenvalues[emb], (1,)).item()
                 else:
                     id_eigen = torch.argmax(number_eigenvalues[emb], dim=-1).item()
-                eigenvecs.append(eigenvectors[emb, :, id_eigen].type(torch.float))
-                eigenvals.append(eigenvalues[emb, id_eigen].type(torch.float))
+                eigenvecs.append(eigenvectors[emb, :, id_eigen].type(torch.float).to(device))
+                eigenvals.append(eigenvalues[emb, id_eigen].type(torch.float).to(device))
             else:
-                eigenvecs.append(torch.zeros(eigenvectors.size(-1)).type(torch.float))
-                eigenvals.append(torch.tensor(0).type(torch.float))
+                eigenvecs.append(torch.zeros(eigenvectors.size(-1)).type(torch.float).to(device))
+                eigenvals.append(torch.tensor(0).type(torch.float).to(device))
         eigenvecs = torch.stack(eigenvecs, dim=0)
         eigenvals = torch.stack(eigenvals, dim=0)
 
@@ -256,7 +256,7 @@ def explore(
                 )
             else:
                 input_emb[0] = input_emb[0] + eigenvecs * delta
-            distance += eigenvals * delta
+            distance += eigenvals.cpu() * delta
 
             if i % save_each == 0:
                 if keep_timing:
