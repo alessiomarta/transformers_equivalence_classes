@@ -58,7 +58,7 @@
                 "--out-dir",
                 "transformers_equivalence_classes/data/res_img",
                 "--img-dir",
-                "data/MNIST/MNIST/trainingset/0",
+                "data/MNIST/MNIST/trainingset/8",
                 "--device",
                 "cpu"
             ]
@@ -183,7 +183,7 @@
                 "--txt-dir",
                 "data/CLS-BERT/hate-speech",
                 "--iter",
-                "2",
+                "100",
                 "--device",
                 "cpu"
             ]

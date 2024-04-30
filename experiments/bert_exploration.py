@@ -270,13 +270,15 @@ def main():
                 for i, el in enumerate(tokenized_input["input_ids"].squeeze())
                 if el == bert_tokenizer.mask_token_id
             ][0]
-        w_ids = [
-            i
-            for i, el in enumerate(tokenized_input.word_ids())
-            if el in eq_class_words[names[idx]]
-        ]
         eq_class_word_ids = [
-            i for i, el in enumerate(tokenized_input.word_ids()) if el in w_ids
+            i
+            for i, el in zip(
+                tokenized_input.word_ids(),
+                bert_tokenizer.convert_ids_to_tokens(
+                    tokenized_input["input_ids"].squeeze()
+                ),
+            )
+            if el in eq_class_words[names[idx]]
         ]
         eq_class_words_and_ids[names[idx]] = {
             "keep_constant": (
