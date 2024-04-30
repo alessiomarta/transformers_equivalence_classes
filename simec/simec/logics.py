@@ -7,6 +7,7 @@ This module leverages PyTorch for tensor operations and gradient computations.
 """
 
 import os
+import pathlib
 import time
 from typing import List
 from collections import defaultdict
@@ -130,8 +131,7 @@ def pullback_eigenvalues(
         g=g,
     )
 
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     if keep_timing:
         save_object(
