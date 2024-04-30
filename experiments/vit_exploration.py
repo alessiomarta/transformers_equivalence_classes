@@ -115,6 +115,7 @@ def main():
         device=device,
     )
     deactivate_dropout_layers(model)
+    model = model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
