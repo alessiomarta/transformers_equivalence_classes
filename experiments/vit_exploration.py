@@ -123,8 +123,13 @@ def main():
     )
 
     for idx, img in enumerate(images):
+
+        print("Image:", idx)
+
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
+
+        print("\tExploration phase")
 
         explore(
             same_equivalence_class=args.exp_type == "same",
@@ -141,6 +146,8 @@ def main():
             out_dir=os.path.join(res_path, names[idx]),
             keep_timing = True
         )
+
+    print("\tInterpretation phase")
 
     decoder = PatchDecoder(
         image_size=model.image_size,
