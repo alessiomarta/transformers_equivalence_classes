@@ -263,6 +263,7 @@ def main():
             return_attention_mask=False,
             add_special_tokens=False,
         )
+        # finding token of which to keep the prediction constant
         keep_constant = 0
         if args.objective == "mask":
             keep_constant = [
@@ -270,6 +271,9 @@ def main():
                 for i, el in enumerate(tokenized_input["input_ids"].squeeze())
                 if el == bert_tokenizer.mask_token_id
             ][0]
+
+        # finding token of which to explore the equivalence class
+        # words could be not ordered in the list, thus they need to be aligned
         eq_class_word_ids = []
         for el1 in eq_class_words[names[idx]]:
             for i, el2 in zip(
@@ -278,14 +282,17 @@ def main():
                     tokenized_input["input_ids"].squeeze()
                 ),
             ):
+                # take into account multiple repetitions of the same word
                 if el1 == el2 and i not in eq_class_word_ids:
                     eq_class_word_ids.append(i)
+
+        # object to make interpretation easier
         eq_class_words_and_ids[names[idx]] = {
             "keep_constant": (
                 keep_constant,
                 "[CLS]" if keep_constant == 0 else "[MASK]",
             ),
-            "eq_class_w": sorted(
+            "eq_class_w": sorted(  # this needs to be in the same order as it appears in the original sentence
                 [
                     (ind, wrd)
                     for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
