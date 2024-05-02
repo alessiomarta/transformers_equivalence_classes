@@ -252,7 +252,6 @@ def main():
     deactivate_dropout_layers(bert_model)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    str_time = "20240502-143945"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -292,22 +291,22 @@ def main():
                 for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
             ],
         }
-        if False:
-            embedded_input = bert_model.bert.embeddings(**tokenized_input)
-            explore(
-                same_equivalence_class=args.exp_type == "same",
-                input_embedding=embedded_input,
-                model=bert_model.bert.encoder,
-                eq_class_emb_ids=(
-                    eq_class_word_ids if len(eq_class_word_ids) > 0 else None
-                ),
-                pred_id=keep_constant,
-                device=device,
-                delta=args.delta,
-                threshold=args.threshold,
-                n_iterations=args.iter,
-                out_dir=os.path.join(res_path, names[idx]),
-            )
+
+        embedded_input = bert_model.bert.embeddings(**tokenized_input)
+        explore(
+            same_equivalence_class=args.exp_type == "same",
+            input_embedding=embedded_input,
+            model=bert_model.bert.encoder,
+            eq_class_emb_ids=(
+                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+            ),
+            pred_id=keep_constant,
+            device=device,
+            delta=args.delta,
+            threshold=args.threshold,
+            n_iterations=args.iter,
+            out_dir=os.path.join(res_path, names[idx]),
+        )
 
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
