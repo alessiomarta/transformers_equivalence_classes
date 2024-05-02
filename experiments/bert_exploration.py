@@ -146,7 +146,7 @@ def interpret(
     mlm_pred = decoder(input_embedding)[0]
     select_eq_class = {}
     for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
-        if w not in ["[CLS]", "[MASK]"]:
+        if w not in ["[CLS]", "[MASK]", "[SEP]"]:
             select_eq_class[(idx, w)] = tuple(
                 zip(
                     mlm_pred[idx].topk(top_k).values.tolist(),
