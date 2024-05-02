@@ -280,16 +280,18 @@ def main():
             ):
                 if el1 == el2 and i not in eq_class_word_ids:
                     eq_class_word_ids.append(i)
-
         eq_class_words_and_ids[names[idx]] = {
             "keep_constant": (
                 keep_constant,
                 "[CLS]" if keep_constant == 0 else "[MASK]",
             ),
-            "eq_class_w": [
-                (ind, wrd)
-                for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
-            ],
+            "eq_class_w": sorted(
+                [
+                    (ind, wrd)
+                    for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
+                ],
+                key=lambda x: x[0],
+            ),
         }
 
         embedded_input = bert_model.bert.embeddings(**tokenized_input)
