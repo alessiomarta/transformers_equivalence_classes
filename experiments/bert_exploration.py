@@ -140,10 +140,10 @@ def interpret(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
         else:
+            mlm_pred = decoder(input_embedding)[0]
             cls_pred = model.classifier(model.bert.pooler(output_embedding))
             str_pred = class_map[torch.argmax(cls_pred).item()]
 
-    mlm_pred = decoder(input_embedding)[0]
     select_eq_class = {}
     for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
         if w not in ["[CLS]", "[MASK]", "[SEP]"]:
