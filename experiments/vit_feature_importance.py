@@ -106,7 +106,7 @@ def main():
     if not os.path.exists(res_path):
         os.makedirs(res_path)
     with open(os.path.join(res_path, "params.json"), "w") as file:
-        json.dump(args, file)
+        json.dump(vars(args), file)
 
     for idx, img in enumerate(images):
         input_patches = model.patcher(img.unsqueeze(0))
