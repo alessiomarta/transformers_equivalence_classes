@@ -228,6 +228,11 @@ def main():
         args.out_dir, "feature-importance", args.exp_name + "-" + str_time
     )
 
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+    with open(os.path.join(res_path, "params.json"), "w") as file:
+        json.dump(args, file)
+
     for idx, txt in enumerate(txts):
         tokenized_input = bert_tokenizer(
             txt,

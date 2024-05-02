@@ -6,6 +6,7 @@ functionality for visual interpretation of feature contributions and saving thes
 import argparse
 import os
 import time
+import json
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import torch
@@ -101,6 +102,11 @@ def main():
     res_path = os.path.join(
         args.out_dir, "feature-importance", args.exp_name + "-" + str_time
     )
+
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+    with open(os.path.join(res_path, "params.json"), "w") as file:
+        json.dump(args, file)
 
     for idx, img in enumerate(images):
         input_patches = model.patcher(img.unsqueeze(0))
