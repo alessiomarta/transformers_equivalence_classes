@@ -262,6 +262,9 @@ def main():
         json.dump(vars(args), file)
 
     for idx, txt in enumerate(txts):
+
+        print(f"Sentence:{idx}/{len(txt)}")
+
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
@@ -307,6 +310,9 @@ def main():
         }
 
         embedded_input = bert_model.bert.embeddings(**tokenized_input)
+
+        print("\tExploration phase")
+
         explore(
             same_equivalence_class=args.exp_type == "same",
             input_embedding=embedded_input,
@@ -321,6 +327,8 @@ def main():
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),
         )
+
+    print("\tInterpretation phase")
 
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
