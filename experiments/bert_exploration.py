@@ -264,7 +264,7 @@ def main():
 
     for idx, txt in enumerate(txts):
 
-        print(f"Sentence:{idx}/{len(txt)}")
+        print(f"Sentence:{idx}/{len(txts)}")
 
         tokenized_input = bert_tokenizer(
             txt,
