@@ -140,8 +140,8 @@ def interpret(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
         else:
-            mlm_pred = decoder(input_embedding.to(device)[0]
-            cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device))
+            mlm_pred = decoder(input_embedding.to(device))[0]
+            cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
             str_pred = class_map[torch.argmax(cls_pred).item()]
 
     select_eq_class = {}
