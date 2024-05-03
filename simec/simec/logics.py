@@ -111,7 +111,7 @@ def pullback_eigenvalues(
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb = model(input_emb)[0]
+    output_emb = model(input_emb)[0].to(device)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
@@ -195,7 +195,7 @@ def explore(
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb = model(input_emb)[0]
+    output_emb = model(input_emb)[0].to(device)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
@@ -211,12 +211,13 @@ def explore(
     # Keep track of the length of the polygonal
     distance = torch.zeros(
         input_emb.size(1) if not eq_class_emb_ids else len(eq_class_emb_ids)
-    )
+    ).to(device)
     if keep_timing:
         times = defaultdict(float)
         times["n_iterations"] = n_iterations
 
     for i in range(n_iterations):
+        print(i)
         if keep_timing:
             tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
@@ -251,8 +252,8 @@ def explore(
                     torch.zeros(eigenvectors.size(-1)).type(torch.float).to(device)
                 )
                 eigenvals.append(torch.tensor(0).type(torch.float).to(device))
-        eigenvecs = torch.stack(eigenvecs, dim=0)
-        eigenvals = torch.stack(eigenvals, dim=0)
+        eigenvecs = torch.stack(eigenvecs, dim=0).to(device)
+        eigenvals = torch.stack(eigenvals, dim=0).to(device)
 
         with torch.no_grad():
             # Proceeed along a null direction
@@ -262,11 +263,11 @@ def explore(
                 )
             else:
                 input_emb[0] = input_emb[0] + eigenvecs * delta
-            distance += eigenvals.cpu() * delta
+            distance += eigenvals * delta
 
         # Prepare for next iteration
         input_emb = input_emb.to(device).requires_grad_(True)
-        output_emb = model(input_emb)[0]
+        output_emb = model(input_emb)[0].to(device)
         if i % save_each == 0:
             if keep_timing:
                 tic_save = time.time()

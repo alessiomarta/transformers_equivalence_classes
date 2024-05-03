@@ -250,6 +250,9 @@ def main():
         args.model_name, mask_or_cls=args.objective
     )
     deactivate_dropout_layers(bert_model)
+    bert_model = bert_model.to(device)
+    if args.objective == "cls":
+        bert_model.decoder.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
@@ -270,7 +273,7 @@ def main():
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
-        )
+        ).to(device)
         # finding token of which to keep the prediction constant
         keep_constant = 0
         if args.objective == "mask":
@@ -315,7 +318,7 @@ def main():
 
         explore(
             same_equivalence_class=args.exp_type == "same",
-            input_embedding=embedded_input,
+            input_embedding=embedded_input.to(device),
             model=bert_model.bert.encoder,
             eq_class_emb_ids=(
                 eq_class_word_ids if len(eq_class_word_ids) > 0 else None
