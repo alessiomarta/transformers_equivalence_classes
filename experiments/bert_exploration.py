@@ -134,14 +134,14 @@ def interpret(
     model.eval()
     with torch.no_grad():
         if mask_or_cls == "mask":
-            mlm_pred = decoder(output_embedding)[0]
+            mlm_pred = decoder(output_embedding.to(device))[0]
             mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
         else:
-            mlm_pred = decoder(input_embedding)[0]
-            cls_pred = model.classifier(model.bert.pooler(output_embedding))
+            mlm_pred = decoder(input_embedding.to(device)[0]
+            cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device))
             str_pred = class_map[torch.argmax(cls_pred).item()]
 
     select_eq_class = {}
