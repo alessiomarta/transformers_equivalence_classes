@@ -312,13 +312,13 @@ def main():
             ),
         }
 
-        embedded_input = bert_model.bert.embeddings(**tokenized_input)
+        embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
 
         print("\tExploration phase")
 
         explore(
             same_equivalence_class=args.exp_type == "same",
-            input_embedding=embedded_input.to(device),
+            input_embedding=embedded_input,
             model=bert_model.bert.encoder,
             eq_class_emb_ids=(
                 eq_class_word_ids if len(eq_class_word_ids) > 0 else None
