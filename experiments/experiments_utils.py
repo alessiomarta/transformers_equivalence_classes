@@ -206,7 +206,7 @@ def load_model(
     config = load_config(config_path)
     model = ViTForClassification(config)
     model.load_state_dict(checkpoint)
-    return model, config
+    return model.to(device), config
 
 
 def deactivate_dropout_layers(model: torch.nn.Module) -> None:
@@ -238,7 +238,7 @@ def deactivate_dropout_layers(model: torch.nn.Module) -> None:
 
 
 def load_bert_model(
-    model_name: str, mask_or_cls: str
+    model_name: str, mask_or_cls: str, device: torch.device
 ) -> Tuple[BertTokenizerFast, BertForSequenceClassification]:
     """
     Load a BERT model for either masked language modeling or sequence classification based on the model name.
@@ -253,10 +253,12 @@ def load_bert_model(
     if mask_or_cls == "mask":
         bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
         bert_model = BertForMaskedLM.from_pretrained(model_name)
-        return bert_tokenizer, bert_model
+        return bert_tokenizer, bert_model.to(device)
     bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
-    bert_model = BertForSequenceClassification.from_pretrained(model_name)
+    bert_model = BertForSequenceClassification.from_pretrained(model_name).to(device)
     decoder = BertForMaskedLM.from_pretrained("bert-base-uncased")
+    deactivate_dropout_layers(decoder)
+    decoder = decoder.to(device)
     bert_model.decoder = lambda x: decoder.cls(decoder.bert.encoder(x)[0])
     return bert_tokenizer, bert_model
 

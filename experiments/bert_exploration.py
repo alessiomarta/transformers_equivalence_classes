@@ -251,8 +251,6 @@ def main():
     )
     deactivate_dropout_layers(bert_model)
     bert_model = bert_model.to(device)
-    if args.objective == "cls":
-        bert_model.decoder.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
