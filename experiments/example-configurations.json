@@ -183,9 +183,13 @@
                 "--txt-dir",
                 "data/CLS-BERT/hate-speech",
                 "--iter",
-                "100",
+                "10",
                 "--device",
-                "cpu"
+                "cpu",
+                "--top-k",
+                "5",
+                "--delta",
+                "0.002"
             ]
         },
         {

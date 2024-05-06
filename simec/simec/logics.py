@@ -111,7 +111,7 @@ def pullback_eigenvalues(
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb = model(input_emb)[0]
+    output_emb = model(input_emb)[0].to(device)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
@@ -136,9 +136,9 @@ def pullback_eigenvalues(
     if keep_timing:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "eigenvalues": eigenvalues,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "eigenvalues": eigenvalues.cpu(),
                 "time": time.time() - tic,
             },
             os.path.join(out_dir, "pullback_eigenvalues.pkl"),
@@ -146,9 +146,9 @@ def pullback_eigenvalues(
     else:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "eigenvalues": eigenvalues,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "eigenvalues": eigenvalues.cpu(),
             },
             os.path.join(out_dir, "pullback_eigenvalues.pkl"),
         )
@@ -195,7 +195,7 @@ def explore(
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb = model(input_emb)[0]
+    output_emb = model(input_emb)[0].to(device)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
@@ -211,12 +211,13 @@ def explore(
     # Keep track of the length of the polygonal
     distance = torch.zeros(
         input_emb.size(1) if not eq_class_emb_ids else len(eq_class_emb_ids)
-    )
+    ).to(device)
     if keep_timing:
         times = defaultdict(float)
         times["n_iterations"] = n_iterations
 
     for i in range(n_iterations):
+        print(i)
         if keep_timing:
             tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
@@ -240,13 +241,19 @@ def explore(
                     id_eigen = torch.randint(0, number_eigenvalues[emb], (1,)).item()
                 else:
                     id_eigen = torch.argmax(number_eigenvalues[emb], dim=-1).item()
-                eigenvecs.append(eigenvectors[emb, :, id_eigen].type(torch.float).to(device))
-                eigenvals.append(eigenvalues[emb, id_eigen].type(torch.float).to(device))
+                eigenvecs.append(
+                    eigenvectors[emb, :, id_eigen].type(torch.float).to(device)
+                )
+                eigenvals.append(
+                    eigenvalues[emb, id_eigen].type(torch.float).to(device)
+                )
             else:
-                eigenvecs.append(torch.zeros(eigenvectors.size(-1)).type(torch.float).to(device))
+                eigenvecs.append(
+                    torch.zeros(eigenvectors.size(-1)).type(torch.float).to(device)
+                )
                 eigenvals.append(torch.tensor(0).type(torch.float).to(device))
-        eigenvecs = torch.stack(eigenvecs, dim=0)
-        eigenvals = torch.stack(eigenvals, dim=0)
+        eigenvecs = torch.stack(eigenvecs, dim=0).to(device)
+        eigenvals = torch.stack(eigenvals, dim=0).to(device)
 
         with torch.no_grad():
             # Proceeed along a null direction
@@ -256,28 +263,27 @@ def explore(
                 )
             else:
                 input_emb[0] = input_emb[0] + eigenvecs * delta
-            distance += eigenvals.cpu() * delta
-
-            if i % save_each == 0:
-                if keep_timing:
-                    tic_save = time.time()
-                if not os.path.exists(out_dir):
-                    os.makedirs(out_dir)
-                save_object(
-                    {
-                        "input_embedding": input_emb,
-                        "output_embedding": output_emb,
-                        "distance": distance,
-                        "iteration": i,
-                    },
-                    os.path.join(out_dir, f"{i}.pkl"),
-                )
-                if keep_timing:
-                    diff = time.time() - tic_save
+            distance += eigenvals * delta
 
         # Prepare for next iteration
         input_emb = input_emb.to(device).requires_grad_(True)
-        output_emb = model(input_emb)[0]
+        output_emb = model(input_emb)[0].to(device)
+        if i % save_each == 0:
+            if keep_timing:
+                tic_save = time.time()
+            if not os.path.exists(out_dir):
+                os.makedirs(out_dir)
+            save_object(
+                {
+                    "input_embedding": input_emb.cpu(),
+                    "output_embedding": output_emb.cpu(),
+                    "distance": distance.cpu(),
+                    "iteration": i,
+                },
+                os.path.join(out_dir, f"{i}.pkl"),
+            )
+            if keep_timing:
+                diff = time.time() - tic_save
         if keep_timing:
             times["time"] += time.time() - tic
             if i % save_each == 0:
@@ -288,9 +294,9 @@ def explore(
     if keep_timing:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "distance": distance,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "distance": distance.cpu(),
                 "iteration": n_iterations,
                 "time": times["time"],
             },
@@ -299,9 +305,9 @@ def explore(
     else:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "distance": distance,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "distance": distance.cpu(),
                 "iteration": n_iterations,
             },
             os.path.join(out_dir, f"{n_iterations}.pkl"),

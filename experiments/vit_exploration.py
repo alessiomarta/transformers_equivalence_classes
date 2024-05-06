@@ -23,6 +23,7 @@ from experiments_utils import (
     load_object,
 )
 
+
 def interpret(
     model: torch.nn.Module,
     decoder: PatchDecoder,
@@ -30,7 +31,7 @@ def interpret(
     output_embedding: torch.Tensor,
     iteration: int,
     eq_class_patch_ids: list,
-    img_out_dir: str = "."
+    img_out_dir: str = ".",
 ) -> None:
     """
     Interpret and visualize the effects of specific patches on the model's predictions.
@@ -81,6 +82,7 @@ def interpret(
     plt.savefig(fname)
     plt.close()
 
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
@@ -99,6 +101,7 @@ def parse_args() -> argparse.Namespace:
     if args.device is None:
         args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
     return args
+
 
 def main():
     args = parse_args()
@@ -122,6 +125,11 @@ def main():
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+    with open(os.path.join(res_path, "params.json"), "w") as file:
+        json.dump(vars(args), file)
+
     for idx, img in enumerate(images):
 
         print("Image:", idx)
@@ -144,7 +152,7 @@ def main():
             ),
             device=device,
             out_dir=os.path.join(res_path, names[idx]),
-            keep_timing = True
+            keep_timing=True,
         )
 
     print("Interpretation phase")
@@ -172,6 +180,7 @@ def main():
                             eq_class_patch_ids=eq_class_patch[img_dir],
                             img_out_dir=os.path.join(res_path, img_dir, "images"),
                         )
+
 
 if __name__ == "__main__":
     main()

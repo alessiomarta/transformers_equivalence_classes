@@ -222,11 +222,16 @@ def main():
         args.model_name, mask_or_cls=args.objective
     )
     deactivate_dropout_layers(bert_model)
-
+    bert_model.to(device)
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
         args.out_dir, "feature-importance", args.exp_name + "-" + str_time
     )
+
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+    with open(os.path.join(res_path, "params.json"), "w") as file:
+        json.dump(vars(args), file)
 
     for idx, txt in enumerate(txts):
         tokenized_input = bert_tokenizer(
@@ -234,7 +239,7 @@ def main():
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
-        )
+        ).to(device)
         keep_constant = 0  # Adjust based on model architecture and use case
         if args.objective == "mask":
             keep_constant = [
@@ -243,7 +248,7 @@ def main():
                 if el == bert_tokenizer.mask_token_id
             ][0]
         keep_constant_dict[names[idx]] = keep_constant
-        embedded_input = bert_model.bert.embeddings(**tokenized_input)
+        embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
 
         pullback_eigenvalues(
             input_embedding=embedded_input,

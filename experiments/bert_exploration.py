@@ -70,7 +70,7 @@ def generate_combined_sentences(
                 s.append(w)
         mod_sentences.append(" ".join(s))
         mod_sentences_idx.append(tokenizer.convert_tokens_to_ids(s))
-    return mod_sentences, torch.Tensor(mod_sentences_idx).int()
+    return combinations, mod_sentences, torch.Tensor(mod_sentences_idx).int()
 
 
 def interpret(
@@ -134,31 +134,33 @@ def interpret(
     model.eval()
     with torch.no_grad():
         if mask_or_cls == "mask":
-            mlm_pred = decoder(output_embedding)[0]
+            mlm_pred = decoder(output_embedding.to(device))[0]
             mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
         else:
-            mlm_pred = decoder(input_embedding)[0]
-            cls_pred = model.classifier(model.bert.pooler(output_embedding))
+            mlm_pred = decoder(input_embedding.to(device))[0]
+            cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
             str_pred = class_map[torch.argmax(cls_pred).item()]
 
     select_eq_class = {}
     for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
-        if w not in ["[CLS]", "[MASK]"]:
+        if w not in ["[CLS]", "[MASK]", "[SEP]"]:
             select_eq_class[(idx, w)] = tuple(
                 zip(
                     mlm_pred[idx].topk(top_k).values.tolist(),
-                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(5).indices),
+                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(top_k).indices),
                 )
             )
 
-    combined_sentences, combined_sentences_ids = generate_combined_sentences(
-        original_tokenized_sentence=original_sentence.copy(),
-        eq_class_words=select_eq_class,
-        tokenizer=tokenizer,
-        max_num=max_n_comb,
+    combinations, combined_sentences, combined_sentences_ids = (
+        generate_combined_sentences(
+            original_tokenized_sentence=original_sentence.copy(),
+            eq_class_words=select_eq_class,
+            tokenizer=tokenizer,
+            max_num=max_n_comb,
+        )
     )
     with torch.no_grad():
         if mask_or_cls == "mask":
@@ -183,18 +185,23 @@ def interpret(
     json_result["eq_class_words"] = {
         f"{k[0]}_{k[1]}": v for k, v in list(select_eq_class.items())
     }
-    json_result["alternative_prompts"] = tuple(
-        zip(combined_sentences, str_preds_combined)
-    )
+    json_result["alternative_prompts"] = [
+        (sent, pred, comb)
+        for sent, pred, comb in zip(
+            combined_sentences, str_preds_combined, combinations
+        )
+        if pred == str_pred
+    ]
 
     max_width = max(len(str(r[0])) for r in json_result["alternative_prompts"])
+    used = set(e for el in json_result["alternative_prompts"] for e in el[-1])
 
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
         + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
         + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(select_eq_class.keys()))}\n"
         + "\n".join(
-            f"Equivalence class for '{k[1]}' (first {top_k} words): {', '.join(el[1] for el in v)}"
+            f"Equivalence class for '{k[1]}' (max {top_k} words): {', '.join(el[1] for el in v if el[1] in used)}"
             for k, v in list(select_eq_class.items())
         )
         + "\n\n Alternative prompts and respective predictions\n"
@@ -247,22 +254,32 @@ def main():
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
 
     bert_tokenizer, bert_model = load_bert_model(
-        args.model_name, mask_or_cls=args.objective
+        args.model_name, mask_or_cls=args.objective, device=device
     )
     deactivate_dropout_layers(bert_model)
+    bert_model = bert_model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+    with open(os.path.join(res_path, "params.json"), "w") as file:
+        json.dump(vars(args), file)
+
     for idx, txt in enumerate(txts):
+
+        print(f"Sentence:{idx}/{len(txts)}")
+
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
-        )
+        ).to(device)
+        # finding token of which to keep the prediction constant
         keep_constant = 0
         if args.objective == "mask":
             keep_constant = [
@@ -270,27 +287,39 @@ def main():
                 for i, el in enumerate(tokenized_input["input_ids"].squeeze())
                 if el == bert_tokenizer.mask_token_id
             ][0]
-        eq_class_word_ids = [
-            i
-            for i, el in zip(
+
+        # finding token of which to explore the equivalence class
+        # words could be not ordered in the list, thus they need to be aligned
+        eq_class_word_ids = []
+        for el1 in eq_class_words[names[idx]]:
+            for i, el2 in zip(
                 tokenized_input.word_ids(),
                 bert_tokenizer.convert_ids_to_tokens(
                     tokenized_input["input_ids"].squeeze()
                 ),
-            )
-            if el in eq_class_words[names[idx]]
-        ]
+            ):
+                # take into account multiple repetitions of the same word
+                if el1 == el2 and i not in eq_class_word_ids:
+                    eq_class_word_ids.append(i)
+
+        # object to make interpretation easier
         eq_class_words_and_ids[names[idx]] = {
             "keep_constant": (
                 keep_constant,
                 "[CLS]" if keep_constant == 0 else "[MASK]",
             ),
-            "eq_class_w": [
-                (ind, wrd)
-                for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
-            ],
+            "eq_class_w": sorted(  # this needs to be in the same order as it appears in the original sentence
+                [
+                    (ind, wrd)
+                    for ind, wrd in zip(eq_class_word_ids, eq_class_words[names[idx]])
+                ],
+                key=lambda x: x[0],
+            ),
         }
-        embedded_input = bert_model.bert.embeddings(**tokenized_input)
+
+        embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
+        print("\tExploration phase")
+
         explore(
             same_equivalence_class=args.exp_type == "same",
             input_embedding=embedded_input,
@@ -304,7 +333,10 @@ def main():
             threshold=args.threshold,
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),
+            save_each=1,
         )
+
+    print("\tInterpretation phase")
 
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
