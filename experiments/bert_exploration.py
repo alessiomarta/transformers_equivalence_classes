@@ -139,10 +139,12 @@ def interpret(
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
+            new_prediction = mlm_pred.copy()
         else:
             mlm_pred = decoder(input_embedding.to(device))[0]
             cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
             str_pred = class_map[torch.argmax(cls_pred).item()]
+            new_prediction = cls_pred.copy()
 
     select_eq_class = {}
     for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
@@ -150,7 +152,7 @@ def interpret(
             select_eq_class[(idx, w)] = tuple(
                 zip(
                     mlm_pred[idx].topk(top_k).values.tolist(),
-                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(5).indices),
+                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(top_k).indices),
                 )
             )
 
@@ -183,9 +185,11 @@ def interpret(
     json_result["eq_class_words"] = {
         f"{k[0]}_{k[1]}": v for k, v in list(select_eq_class.items())
     }
-    json_result["alternative_prompts"] = tuple(
-        zip(combined_sentences, str_preds_combined)
-    )
+    json_result["alternative_prompts"] = [
+        (sent, pred)
+        for sent, pred in zip(combined_sentences, str_preds_combined)
+        if pred == new_prediction
+    ]
 
     max_width = max(len(str(r[0])) for r in json_result["alternative_prompts"])
 
@@ -327,6 +331,7 @@ def main():
             threshold=args.threshold,
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),
+            save_each=1,
         )
 
     print("\tInterpretation phase")
