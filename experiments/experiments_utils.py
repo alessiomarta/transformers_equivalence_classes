@@ -5,6 +5,7 @@ configuring models, and manipulating model training states.
 """
 
 import os
+import io
 import json
 import string
 from typing import Any, List, Tuple, Optional
@@ -30,6 +31,13 @@ def save_object(obj: Any, filename: str) -> None:
     """
     with open(filename, "wb") as outp:
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
+
+
+def find_class(module, name):
+    if module == "torch.storage" and name == "_load_from_bytes":
+        return lambda b: torch.load(io.BytesIO(b), map_location="cpu")
+    else:
+        return super().find_class(module, name)
 
 
 def load_object(filename: str) -> Any:

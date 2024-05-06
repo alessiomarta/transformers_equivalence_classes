@@ -70,7 +70,7 @@ def generate_combined_sentences(
                 s.append(w)
         mod_sentences.append(" ".join(s))
         mod_sentences_idx.append(tokenizer.convert_tokens_to_ids(s))
-    return mod_sentences, torch.Tensor(mod_sentences_idx).int()
+    return combinations, mod_sentences, torch.Tensor(mod_sentences_idx).int()
 
 
 def interpret(
@@ -139,12 +139,10 @@ def interpret(
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
-            new_prediction = mlm_pred.copy()
         else:
             mlm_pred = decoder(input_embedding.to(device))[0]
             cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
             str_pred = class_map[torch.argmax(cls_pred).item()]
-            new_prediction = cls_pred.copy()
 
     select_eq_class = {}
     for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
@@ -156,11 +154,13 @@ def interpret(
                 )
             )
 
-    combined_sentences, combined_sentences_ids = generate_combined_sentences(
-        original_tokenized_sentence=original_sentence.copy(),
-        eq_class_words=select_eq_class,
-        tokenizer=tokenizer,
-        max_num=max_n_comb,
+    combinations, combined_sentences, combined_sentences_ids = (
+        generate_combined_sentences(
+            original_tokenized_sentence=original_sentence.copy(),
+            eq_class_words=select_eq_class,
+            tokenizer=tokenizer,
+            max_num=max_n_comb,
+        )
     )
     with torch.no_grad():
         if mask_or_cls == "mask":
@@ -186,19 +186,22 @@ def interpret(
         f"{k[0]}_{k[1]}": v for k, v in list(select_eq_class.items())
     }
     json_result["alternative_prompts"] = [
-        (sent, pred)
-        for sent, pred in zip(combined_sentences, str_preds_combined)
-        if pred == new_prediction
+        (sent, pred, comb)
+        for sent, pred, comb in zip(
+            combined_sentences, str_preds_combined, combinations
+        )
+        if pred == str_pred
     ]
 
     max_width = max(len(str(r[0])) for r in json_result["alternative_prompts"])
+    used = set(e for el in json_result["alternative_prompts"] for e in el[-1])
 
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
         + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
         + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(select_eq_class.keys()))}\n"
         + "\n".join(
-            f"Equivalence class for '{k[1]}' (first {top_k} words): {', '.join(el[1] for el in v)}"
+            f"Equivalence class for '{k[1]}' (max {top_k} words): {', '.join(el[1] for el in v if el[1] in used)}"
             for k, v in list(select_eq_class.items())
         )
         + "\n\n Alternative prompts and respective predictions\n"
@@ -257,6 +260,7 @@ def main():
     bert_model = bert_model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
+    str_time = "20240506-155024"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -315,24 +319,24 @@ def main():
         }
 
         embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
+        if False:
+            print("\tExploration phase")
 
-        print("\tExploration phase")
-
-        explore(
-            same_equivalence_class=args.exp_type == "same",
-            input_embedding=embedded_input,
-            model=bert_model.bert.encoder,
-            eq_class_emb_ids=(
-                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
-            ),
-            pred_id=keep_constant,
-            device=device,
-            delta=args.delta,
-            threshold=args.threshold,
-            n_iterations=args.iter,
-            out_dir=os.path.join(res_path, names[idx]),
-            save_each=1,
-        )
+            explore(
+                same_equivalence_class=args.exp_type == "same",
+                input_embedding=embedded_input,
+                model=bert_model.bert.encoder,
+                eq_class_emb_ids=(
+                    eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+                ),
+                pred_id=keep_constant,
+                device=device,
+                delta=args.delta,
+                threshold=args.threshold,
+                n_iterations=args.iter,
+                out_dir=os.path.join(res_path, names[idx]),
+                save_each=1,
+            )
 
     print("\tInterpretation phase")
 
