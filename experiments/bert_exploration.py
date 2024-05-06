@@ -247,7 +247,7 @@ def main():
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
 
     bert_tokenizer, bert_model = load_bert_model(
-        args.model_name, mask_or_cls=args.objective
+        args.model_name, mask_or_cls=args.objective, device=device
     )
     deactivate_dropout_layers(bert_model)
     bert_model = bert_model.to(device)
