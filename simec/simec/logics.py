@@ -136,9 +136,9 @@ def pullback_eigenvalues(
     if keep_timing:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "eigenvalues": eigenvalues,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "eigenvalues": eigenvalues.cpu(),
                 "time": time.time() - tic,
             },
             os.path.join(out_dir, "pullback_eigenvalues.pkl"),
@@ -146,9 +146,9 @@ def pullback_eigenvalues(
     else:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "eigenvalues": eigenvalues,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "eigenvalues": eigenvalues.cpu(),
             },
             os.path.join(out_dir, "pullback_eigenvalues.pkl"),
         )
@@ -275,9 +275,9 @@ def explore(
                 os.makedirs(out_dir)
             save_object(
                 {
-                    "input_embedding": input_emb,
-                    "output_embedding": output_emb,
-                    "distance": distance,
+                    "input_embedding": input_emb.cpu(),
+                    "output_embedding": output_emb.cpu(),
+                    "distance": distance.cpu(),
                     "iteration": i,
                 },
                 os.path.join(out_dir, f"{i}.pkl"),
@@ -294,9 +294,9 @@ def explore(
     if keep_timing:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "distance": distance,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "distance": distance.cpu(),
                 "iteration": n_iterations,
                 "time": times["time"],
             },
@@ -305,9 +305,9 @@ def explore(
     else:
         save_object(
             {
-                "input_embedding": input_emb,
-                "output_embedding": output_emb,
-                "distance": distance,
+                "input_embedding": input_emb.cpu(),
+                "output_embedding": output_emb.cpu(),
+                "distance": distance.cpu(),
                 "iteration": n_iterations,
             },
             os.path.join(out_dir, f"{n_iterations}.pkl"),
