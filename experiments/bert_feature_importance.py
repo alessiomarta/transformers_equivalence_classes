@@ -8,6 +8,7 @@ import os
 import argparse
 import time
 import json
+from tqdm.auto import tqdm
 import torch
 import matplotlib.pyplot as plt
 import numpy as np
@@ -219,7 +220,7 @@ def main():
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
 
     bert_tokenizer, bert_model = load_bert_model(
-        args.model_name, mask_or_cls=args.objective
+        args.model_name, mask_or_cls=args.objective, device = device
     )
     deactivate_dropout_layers(bert_model)
     bert_model.to(device)
@@ -233,7 +234,9 @@ def main():
     with open(os.path.join(res_path, "params.json"), "w") as file:
         json.dump(vars(args), file)
 
-    for idx, txt in enumerate(txts):
+    idx = 0
+
+    for txt in tqdm(txts):
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
@@ -257,6 +260,7 @@ def main():
             device=device,
             out_dir=os.path.join(res_path, names[idx]),
         )
+        idx += 1
 
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
