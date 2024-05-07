@@ -155,7 +155,7 @@ def main():
             keep_timing=True,
         )
 
-    print("\tInterpretation phase")
+    print("Interpretation phase")
 
     decoder = PatchDecoder(
         image_size=model.image_size,

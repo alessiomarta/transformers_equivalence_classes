@@ -186,6 +186,25 @@ class MultiHeadAttention(nn.Module):
         self.output_projection = nn.Linear(self.all_head_size, self.hidden_size)
         self.output_dropout = nn.Dropout(config["hidden_dropout_prob"])
 
+        self.attention_map = None
+        self.attn_gradients = None
+
+    def save_attention_map(self, attention_map):
+
+        self.attention_map = attention_map
+
+    def get_attention_map(self):
+
+        return self.attention_map
+    
+    def save_attn_gradients(self, attn_gradients):
+
+        self.attn_gradients = attn_gradients
+
+    def get_attn_gradients(self):
+
+        return self.attn_gradients
+
     def forward(self, x, output_attentions=False):
         # Project the query, key, and value
         # (batch_size, sequence_length, hidden_size) -> (batch_size, sequence_length, all_head_size * 3)
@@ -219,6 +238,9 @@ class MultiHeadAttention(nn.Module):
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
         attention_probs = self.attn_dropout(attention_probs)
+        self.save_attention_map(attention_probs)
+        attention_probs.register_hook(self.save_attn_gradients)
+        
         # Calculate the attention output
         attention_output = torch.matmul(attention_probs, value)
         # Resize the attention output
