@@ -236,10 +236,7 @@ def explore(
         eigenvecs, eigenvals = [], []
         for emb in range(eigenvalues.size(0)):
             if number_eigenvalues[emb]:
-                if same_equivalence_class:
-                    id_eigen = torch.randint(0, number_eigenvalues[emb], (1,)).item()
-                else:
-                    id_eigen = torch.argmax(number_eigenvalues[emb], dim=-1).item()
+                id_eigen = torch.randint(0, number_eigenvalues[emb], (1,)).item()
                 eigenvecs.append(
                     eigenvectors[emb, :, id_eigen].type(torch.float).to(device)
                 )
