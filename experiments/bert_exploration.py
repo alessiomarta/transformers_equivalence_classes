@@ -226,7 +226,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--objective", type=str, choices=["cls", "mask"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
-    parser.add_argument("--delta", type=float, default=9e-1)
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
     parser.add_argument("--txt-dir", type=str, required=True)
@@ -329,7 +328,6 @@ def main():
             ),
             pred_id=keep_constant,
             device=device,
-            delta=args.delta,
             threshold=args.threshold,
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),

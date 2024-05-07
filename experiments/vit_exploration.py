@@ -88,7 +88,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
     parser.add_argument("--keep-constant", type=int, default=0)
-    parser.add_argument("--delta", type=float, default=9e-1)
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
     parser.add_argument("--img-dir", type=str, required=True)
@@ -143,7 +142,6 @@ def main():
             same_equivalence_class=args.exp_type == "same",
             input_embedding=input_embedding,
             model=model.encoder,
-            delta=args.delta,
             threshold=args.threshold,
             n_iterations=args.iter,
             pred_id=args.keep_constant,
@@ -153,6 +151,7 @@ def main():
             device=device,
             out_dir=os.path.join(res_path, names[idx]),
             keep_timing=True,
+            save_each=10,
         )
 
     print("\tInterpretation phase")
