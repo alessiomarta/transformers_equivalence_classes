@@ -48,39 +48,44 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
-    pred = torch.argmax(model.classifier(output_embedding[:, 0]))
-    norm = Normalize(vmin=-1, vmax=1)
-    fname = os.path.join(img_out_dir, f"{iteration}-{pred}.png")
-    image = decoder(input_embedding)
-    _, ax = plt.subplots()
-    ax.imshow(image.squeeze().cpu().numpy(), cmap="gray", norm=norm)
-    for p in eq_class_patch_ids:
-        image_index = (
-            np.array(
-                np.unravel_index(
-                    p - 1,
-                    (
-                        28 // model.embedding.patch_size,
-                        28 // model.embedding.patch_size,
-                    ),
+    model.eval()
+    with torch.no_grad():
+        pred = torch.argmax(model.classifier(output_embedding[:, 0]))
+        norm = Normalize(vmin=-1, vmax=1)
+        image = decoder(input_embedding)
+        modified_image_pred = torch.argmax(model(image)[0])
+        fname = os.path.join(
+            img_out_dir, f"{iteration}-{pred}-{modified_image_pred}.png"
+        )
+        _, ax = plt.subplots()
+        ax.imshow(image.squeeze().cpu().numpy(), cmap="gray", norm=norm)
+        for p in eq_class_patch_ids:
+            image_index = (
+                np.array(
+                    np.unravel_index(
+                        p - 1,
+                        (
+                            28 // model.embedding.patch_size,
+                            28 // model.embedding.patch_size,
+                        ),
+                    )
+                )
+                * model.embedding.patch_size
+            )[::-1]
+            ax.add_patch(
+                Rectangle(
+                    tuple(image_index + np.array([-0.5, -0.5])),
+                    model.embedding.patch_size,
+                    model.embedding.patch_size,
+                    linewidth=1,
+                    edgecolor="r",
+                    facecolor="none",
                 )
             )
-            * model.embedding.patch_size
-        )[::-1]
-        ax.add_patch(
-            Rectangle(
-                tuple(image_index + np.array([-0.5, -0.5])),
-                model.embedding.patch_size,
-                model.embedding.patch_size,
-                linewidth=1,
-                edgecolor="r",
-                facecolor="none",
-            )
-        )
-    if not os.path.exists(img_out_dir):
-        os.makedirs(img_out_dir)
-    plt.savefig(fname)
-    plt.close()
+        if not os.path.exists(img_out_dir):
+            os.makedirs(img_out_dir)
+        plt.savefig(fname)
+        plt.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -160,7 +165,7 @@ def main():
         image_size=model.image_size,
         patch_size=model.embedding.patch_size,
         model_embedding_layer=model.embedding,
-    )
+    ).to(device)
 
     with torch.no_grad():
         for img_dir in os.listdir(res_path):
