@@ -84,8 +84,6 @@ def interpret(
     mask_or_cls: str,
     iteration: int,
     device: torch.device,
-    top_k: int = 3,
-    max_n_comb: int = 100,
     class_map: dict = None,
     txt_out_dir: str = ".",
 ) -> None:
@@ -121,14 +119,17 @@ def interpret(
     )
     keep_constant_id, keep_constant_txt = keep_constant
     sentence = load_raw_sent(txts_dir, sent_name)
-    original_sentence = tokenizer.convert_ids_to_tokens(
+    original_sentence_ids = (
         tokenizer(
             sentence[0],
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
-        )["input_ids"].squeeze()
+        )["input_ids"]
+        .squeeze()
+        .to(device)
     )
+    original_sentence = tokenizer.convert_ids_to_tokens(original_sentence_ids)
     allowed_tokens = get_allowed_tokens(tokenizer)
 
     model.eval()
@@ -144,34 +145,22 @@ def interpret(
             cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
             str_pred = class_map[torch.argmax(cls_pred).item()]
 
-    select_eq_class = {}
-    for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
-        if w not in ["[CLS]", "[MASK]", "[SEP]"]:
-            select_eq_class[(idx, w)] = tuple(
-                zip(
-                    mlm_pred[idx].topk(top_k).values.tolist(),
-                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(top_k).indices),
-                )
-            )
+        modified_sentence_ids = original_sentence_ids.clone().to(device)
+        for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
+            if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                modified_sentence_ids[idx] = torch.argmax(mlm_pred[idx]).item()
 
-    combinations, combined_sentences, combined_sentences_ids = (
-        generate_combined_sentences(
-            original_tokenized_sentence=original_sentence.copy(),
-            eq_class_words=select_eq_class,
-            tokenizer=tokenizer,
-            max_num=max_n_comb,
-        )
-    )
-    with torch.no_grad():
+        modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
+
         if mask_or_cls == "mask":
-            mlm_pred = model(combined_sentences_ids.to(device))[0]
+            mlm_pred = model(input_ids=modified_sentence_ids.unsqueeze(0))[0]
             mlm_pred[:, :, allowed_tokens] = mlm_pred[:, :, allowed_tokens] * 100
-            str_preds_combined = tokenizer.convert_ids_to_tokens(
+            str_preds_modified = tokenizer.convert_ids_to_tokens(
                 torch.argmax(mlm_pred[:, keep_constant_id], dim=-1)
             )
         else:
-            cls_pred = model(combined_sentences_ids.to(device))[0]
-            str_preds_combined = [
+            cls_pred = model(input_ids=modified_sentence_ids.unsqueeze(0))[0]
+            str_preds_modified = [
                 class_map[r.item()] for r in torch.argmax(cls_pred, dim=-1)
             ]
 
@@ -182,39 +171,29 @@ def interpret(
     json_result["target_token_id"] = keep_constant_id
     json_result["target_token"] = keep_constant_txt
     json_result["target_token_pred"] = str_pred
-    json_result["eq_class_words"] = {
-        f"{k[0]}_{k[1]}": v for k, v in list(select_eq_class.items())
-    }
-    json_result["alternative_prompts"] = [
-        (sent, pred, comb)
-        for sent, pred, comb in zip(
-            combined_sentences, str_preds_combined, combinations
-        )
-        if pred == str_pred
+    json_result["eq_class_words"] = [
+        (k, v)
+        for k, v in (eq_class if len(eq_class) > 0 else enumerate(original_sentence))
     ]
-
-    max_width = max(len(str(r[0])) for r in json_result["alternative_prompts"])
-    used = set(e for el in json_result["alternative_prompts"] for e in el[-1])
+    json_result["modified_sentence"] = modified_sentence
+    json_result["modified_sentence_pred"] = str_preds_modified[0]
 
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
         + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
-        + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(select_eq_class.keys()))}\n"
-        + "\n".join(
-            f"Equivalence class for '{k[1]}' (max {top_k} words): {', '.join(el[1] for el in v if el[1] in used)}"
-            for k, v in list(select_eq_class.items())
-        )
-        + "\n\n Alternative prompts and respective predictions\n"
-        + "\n".join(
-            f"{r[0]:<{max_width}}\t{str(r[1]):>10}"
-            for r in json_result["alternative_prompts"]
-        )
+        + f"Equivalence class exploration for the following words: {', ' .join(f'{el[1]} [{el[0]}]' for el in json_result['eq_class_words'])}\n"
+        + "\n\n Modified sentence and respective prediction\n"
+        + f"{' '.join(json_result['modified_sentence'])}\t{json_result['modified_sentence_pred']}"
     )
 
     if not os.path.exists(txt_out_dir):
         os.makedirs(txt_out_dir)
-    fname = os.path.join(txt_out_dir, f"{iteration}-{str_pred}.txt")
-    json_fname = os.path.join(txt_out_dir, f"{iteration}-{str_pred}.json")
+    fname = os.path.join(
+        txt_out_dir, f"{iteration}-{str_pred}-{str_preds_modified[0]}.txt"
+    )
+    json_fname = os.path.join(
+        txt_out_dir, f"{iteration}-{str_pred}-{str_preds_modified[0]}.json"
+    )
     with open(fname, "w") as file:
         file.write(str_res)
     with open(json_fname, "w") as file:
@@ -229,8 +208,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
     parser.add_argument("--txt-dir", type=str, required=True)
-    parser.add_argument("--max-combinations", type=int, default=100)
-    parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--device", type=str)
@@ -315,8 +292,8 @@ def main():
                 key=lambda x: x[0],
             ),
         }
-
         embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
+
         print("\tExploration phase")
 
         explore(
@@ -363,8 +340,6 @@ def main():
                                 res_path, txt_dir, "interpretation"
                             ),
                             device=device,
-                            max_n_comb=args.max_combinations,
-                            top_k=args.top_k,
                         )
 
 
