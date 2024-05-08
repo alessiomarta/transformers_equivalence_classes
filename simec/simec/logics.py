@@ -252,9 +252,11 @@ def explore(
         eigenvals = torch.stack(eigenvals, dim=0).to(device)
 
         with torch.no_grad():
-            # Proceeed along a null direction with a delta adjusted according to
-            # max eigenvalue
-            delta = (10 / torch.max(eigenvalues)).to(device)
+            # Proceeed along a null direction
+            if same_equivalence_class:
+                delta = (torch.tensor(1) / torch.max(eigenvalues)).to(device)
+            else:
+                delta = (eigenvalues.size(-1) / torch.max(eigenvalues)).to(device)
             if eq_class_emb_ids:
                 input_emb[0, eq_class_emb_ids] = (
                     input_emb[0, eq_class_emb_ids] + eigenvecs * delta
