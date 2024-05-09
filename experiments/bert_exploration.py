@@ -207,6 +207,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exp-name", type=str, required=True)
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
+    parser.add_argument("--save-each", type=int, default=1)
     parser.add_argument("--txt-dir", type=str, required=True)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
@@ -308,7 +309,7 @@ def main():
             threshold=args.threshold,
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),
-            save_each=1,
+            save_each=args.save_each,
         )
 
     print("\tInterpretation phase")

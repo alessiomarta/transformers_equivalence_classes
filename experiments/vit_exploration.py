@@ -31,6 +31,7 @@ def interpret(
     output_embedding: torch.Tensor,
     iteration: int,
     eq_class_patch_ids: list,
+    device: torch.device,
     img_out_dir: str = ".",
 ) -> None:
     """
@@ -50,9 +51,15 @@ def interpret(
     """
     model.eval()
     with torch.no_grad():
-        pred = torch.argmax(model.classifier(output_embedding[:, 0]))
+        pred = torch.argmax(model.classifier(output_embedding[:, 0].to(device)))
         norm = Normalize(vmin=-1, vmax=1)
-        image = decoder(input_embedding)
+        image = decoder(input_embedding.to(device))
+        if torch.min(image) < -1 or torch.max(image) > 1:
+            print(
+                f"Decoded image out of bounds with min value {torch.min(image)} and max value {torch.max(image)}"
+            )
+            image[image < -1] = -1
+            image[image > 1] = 1
         modified_image_pred = torch.argmax(model(image)[0])
         fname = os.path.join(
             img_out_dir, f"{iteration}-{pred}-{modified_image_pred}.png"
@@ -95,6 +102,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keep-constant", type=int, default=0)
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
+    parser.add_argument("--save-each", type=int, default=100)
     parser.add_argument("--img-dir", type=str, required=True)
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
@@ -156,7 +164,7 @@ def main():
             device=device,
             out_dir=os.path.join(res_path, names[idx]),
             keep_timing=True,
-            save_each=10,
+            save_each=args.save_each,
         )
 
     print("\tInterpretation phase")
@@ -183,6 +191,7 @@ def main():
                             iteration=res["iteration"],
                             eq_class_patch_ids=eq_class_patch[img_dir],
                             img_out_dir=os.path.join(res_path, img_dir, "images"),
+                            device=device,
                         )
 
 
