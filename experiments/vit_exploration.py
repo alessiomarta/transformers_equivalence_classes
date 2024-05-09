@@ -14,10 +14,12 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
+from torchvision import transforms
 from simec.logics import explore
 from models.vit import PatchDecoder
 from experiments_utils import (
     load_raw_images,
+    load_raw_image,
     deactivate_dropout_layers,
     load_model,
     load_object,
@@ -25,6 +27,7 @@ from experiments_utils import (
 
 
 def interpret(
+    img_filename: tuple,
     model: torch.nn.Module,
     decoder: PatchDecoder,
     input_embedding: torch.Tensor,
@@ -49,39 +52,64 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
+    original_image, _ = load_raw_image(*img_filename)
     model.eval()
     with torch.no_grad():
         pred = torch.argmax(model.classifier(output_embedding[:, 0].to(device)))
-        norm = Normalize(vmin=-1, vmax=1)
-        image = decoder(input_embedding.to(device))
-        if torch.min(image) < -1 or torch.max(image) > 1:
-            print(
-                f"Decoded image out of bounds with min value {torch.min(image)} and max value {torch.max(image)}"
+        patch_idx = []
+        if eq_class_patch_ids:
+            for p in eq_class_patch_ids:
+                patch_idx.append(
+                    (
+                        np.array(
+                            np.unravel_index(
+                                p - 1,
+                                (
+                                    28 // model.embedding.patch_size,
+                                    28 // model.embedding.patch_size,
+                                ),
+                            )
+                        )
+                        * model.embedding.patch_size
+                    )[::-1]
+                )
+            mod_pixels = [[], []]
+            for p in patch_idx:
+                for i in range(model.embedding.patch_size):
+                    for j in range(model.embedding.patch_size):
+                        mod_pixels[0].append(p[0] + i)
+                        mod_pixels[1].append(p[1] + j)
+            decoded_image = decoder(input_embedding.to(device)).squeeze()
+            decoded_image = -1 + 2 * (decoded_image - torch.min(decoded_image)) / (
+                torch.max(decoded_image) - torch.min(decoded_image)
             )
-            image[image < -1] = -1
-            image[image > 1] = 1
-        modified_image_pred = torch.argmax(model(image)[0])
+            decoded_image[decoded_image < -1] = -1
+            decoded_image[decoded_image > 1] = 1
+            modified_image = original_image.clone().to(device)
+            modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
+                mod_pixels[1], mod_pixels[0]
+            ]
+        else:
+            modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
+            modified_image = -1 + 2 * (modified_image - torch.min(modified_image)) / (
+                torch.max(modified_image) - torch.min(modified_image)
+            )
+            if len(modified_image.size()) == 2:
+                modified_image = modified_image.unsqueeze(0)
+        modified_image_pred = torch.argmax(model(modified_image.unsqueeze(0))[0])
         fname = os.path.join(
             img_out_dir, f"{iteration}-{pred}-{modified_image_pred}.png"
         )
         _, ax = plt.subplots()
-        ax.imshow(image.squeeze().cpu().numpy(), cmap="gray", norm=norm)
-        for p in eq_class_patch_ids:
-            image_index = (
-                np.array(
-                    np.unravel_index(
-                        p - 1,
-                        (
-                            28 // model.embedding.patch_size,
-                            28 // model.embedding.patch_size,
-                        ),
-                    )
-                )
-                * model.embedding.patch_size
-            )[::-1]
+        ax.imshow(
+            modified_image.squeeze().cpu().numpy(),
+            cmap="gray",
+            # norm=Normalize(vmin=-1, vmax=1),
+        )
+        for p in patch_idx:
             ax.add_patch(
                 Rectangle(
-                    tuple(image_index + np.array([-0.5, -0.5])),
+                    tuple(p + np.array([-0.5, -0.5])),
                     model.embedding.patch_size,
                     model.embedding.patch_size,
                     linewidth=1,
@@ -133,6 +161,7 @@ def main():
     model = model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
+    str_time = "20240509-122102"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -149,23 +178,27 @@ def main():
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
 
-        print("\tExploration phase")
+        if False:
 
-        explore(
-            same_equivalence_class=args.exp_type == "same",
-            input_embedding=input_embedding,
-            model=model.encoder,
-            threshold=args.threshold,
-            n_iterations=args.iter,
-            pred_id=args.keep_constant,
-            eq_class_emb_ids=(
-                None if eq_class_patch[names[idx]] == [] else eq_class_patch[names[idx]]
-            ),
-            device=device,
-            out_dir=os.path.join(res_path, names[idx]),
-            keep_timing=True,
-            save_each=args.save_each,
-        )
+            print("\tExploration phase")
+
+            explore(
+                same_equivalence_class=args.exp_type == "same",
+                input_embedding=input_embedding,
+                model=model.encoder,
+                threshold=args.threshold,
+                n_iterations=args.iter,
+                pred_id=args.keep_constant,
+                eq_class_emb_ids=(
+                    None
+                    if eq_class_patch[names[idx]] == []
+                    else eq_class_patch[names[idx]]
+                ),
+                device=device,
+                out_dir=os.path.join(res_path, names[idx]),
+                keep_timing=True,
+                save_each=args.save_each,
+            )
 
     print("\tInterpretation phase")
 
@@ -184,6 +217,7 @@ def main():
                     ) and filename.lower().endswith(".pkl"):
                         res = load_object(os.path.join(res_path, img_dir, filename))
                         interpret(
+                            img_filename=(args.img_dir, img_dir),
                             model=model,
                             decoder=decoder,
                             input_embedding=res["input_embedding"],
