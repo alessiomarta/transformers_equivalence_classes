@@ -38,7 +38,7 @@ def main():
     txts, names = load_raw_sents(txt_dir)
 
     bert_tokenizer, bert_model = load_bert_model(
-        model_name, mask_or_cls="cls", device = device
+        model_name, mask_or_cls="cls"
     )
 
     deactivate_dropout_layers(bert_model)
@@ -53,6 +53,7 @@ def main():
 
         encoded_input = bert_tokenizer(sent, return_tensors = "pt")
         pred = bert_model(**encoded_input)
+        pred = pred.logits.detach().numpy().flatten().argmax()
 
         mask = grad_rollout(encoded_input, category_index = pred)
 
