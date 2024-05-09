@@ -84,7 +84,7 @@ def pullback_eigenvalues(
     model: torch.nn.Module,
     pred_id: int,
     device: torch.device,
-    keep_timing: bool = False,
+    keep_timing: bool = True,
     out_dir: str = ".",
 ):
     """
@@ -164,7 +164,7 @@ def explore(
     pred_id: int,
     device: torch.device,
     eq_class_emb_ids: List[int] = None,
-    keep_timing: bool = False,
+    keep_timing: bool = True,
     save_each: int = 10,
     out_dir: str = ".",
 ):
@@ -254,9 +254,13 @@ def explore(
         with torch.no_grad():
             # Proceeed along a null direction
             if same_equivalence_class:
-                delta = (torch.tensor(1) / torch.max(eigenvalues)).to(device)
+                delta = (torch.tensor(1) / torch.sqrt(torch.max(eigenvalues))).to(
+                    device
+                )
             else:
-                delta = (eigenvalues.size(-1) / torch.max(eigenvalues)).to(device)
+                delta = (torch.tensor(2) / torch.sqrt(torch.max(eigenvalues))).to(
+                    device
+                )
             if eq_class_emb_ids:
                 input_emb[0, eq_class_emb_ids] = (
                     input_emb[0, eq_class_emb_ids] + eigenvecs * delta
@@ -264,12 +268,12 @@ def explore(
             else:
                 input_emb[0] = input_emb[0] + eigenvecs * delta
             distance += eigenvals * delta
-        print(f"Iteration: {i}\tDelta: {around(delta.numpy(), 5)}")
 
         # Prepare for next iteration
         input_emb = input_emb.to(device).requires_grad_(True)
         output_emb = model(input_emb)[0].to(device)
         if i % save_each == 0:
+            print(f"Iteration: {i}\tDelta: {around(delta.cpu().numpy(), 5)}")
             if keep_timing:
                 tic_save = time.time()
             if not os.path.exists(out_dir):
