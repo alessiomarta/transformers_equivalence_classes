@@ -49,7 +49,7 @@ def main():
 
     for name, sent in zip(names, txts):
 
-        fname = os.path.join(out_dir, f"{name}.png")
+        fname = os.path.join(out_dir, f"{name}.json")
 
         print("Document:", name)
 

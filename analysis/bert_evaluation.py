@@ -1,10 +1,11 @@
 import json
 import os
 import argparse
-from torch.nn import BCELoss, Softmax
+from scipy.spatial.distance import cosine
 from transformers import AutoTokenizer
 from experiments_utils import *
 import numpy as np
+from time import sleep
 
 
 def parse_args():
@@ -21,19 +22,17 @@ def parse_args():
     return args
 
 
-def token_score_align(sentence, encoding, word_scores):
+def token_score_align(words, encoding, token_scores):
 
-    words = sentence.split()
-    token_scores = [0]*len(encoding)
+    word_scores = [0]*len(words)
 
-    for j in range(len(words)):
+    for j in range(len(encoding)):
 
-        token_ids = encoding.word_to_tokens(j)
-        if token_ids:
-            for k in token_ids:
-                token_scores[k-1] = word_scores[j]
+        word_id = encoding.token_to_word(j+1)
+        if word_id and j < len(token_scores):
+            word_scores[word_id] += token_scores[j]
 
-    return token_scores
+    return word_scores
 
 
 def main():
@@ -46,8 +45,12 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
 
+    count = 0
+
     with open(os.path.join(datapath), "r") as f:
         data = json.load(f)
+
+    print("Number of annotations:", len(data))
 
     preds = {}
     for file in os.listdir(predpath):
@@ -58,29 +61,43 @@ def main():
 
     txts, names = load_raw_sents(txt_dir)
 
-    encoded_txts = tokenizer(txts, add_special_tokens = False)
-    loss = BCELoss()
-    softmax = Softmax()
+    print("Number of predictions:", len(preds))
 
-    cross_entropies = []
-    for name, txt, encoding in zip(names, txts, encoded_txts.encodings):
+    tokenized_texts = list(map(lambda s: s.split(), txts))
+
+    encoded_txts = tokenizer(tokenized_texts, is_split_into_words = True, add_special_tokens = False, padding = True, return_tensors = "pt")
+
+    similarities = []
+    for name, txt, encoding in zip(names, tokenized_texts, encoded_txts.encodings):
         print("Document:", name)
 
-        word_scores = data[name]
+        ground_truth = data[name]
+        if name not in preds:
+            print(f"{name} not in predictions")
+            continue
+
+        count += 1
         pred_scores = list(map(lambda tup: tup[0], preds[name]))
-        token_scores = token_score_align(txt, encoding, word_scores)
+
+        if np.isnan(pred_scores[0]):
+            continue
+
+        word_scores = token_score_align(txt, encoding, pred_scores)
 
         try:
-            assert len(pred_scores) == len(token_scores)
+            assert len(ground_truth) == len(word_scores)
         except:
-            raise Exception(f"Length of pred scores is {len(pred_scores)}, while length of token scores is {len(token_scores)}")
+            raise Exception(f"Length of pred scores is {len(word_scores)}, while length of ground truth is {len(ground_truth)}")
 
-        y_pred = softmax(torch.tensor(pred_scores))
-        y_true = softmax(torch.tensor(token_scores))
+        y_pred = np.array(word_scores) / max(word_scores)
+        y_true = np.array(ground_truth) / max(ground_truth)
 
-        cross_entropies.append(loss(y_pred, y_true).item())
+        L = 1 - cosine(y_pred, y_true)
 
-    print("Final BCE:", np.mean(cross_entropies))
+        similarities.append(L)
+
+    print("Average similarity:", np.mean(similarities))
+    print("Final count:", count)
 
 
 if __name__ == "__main__":

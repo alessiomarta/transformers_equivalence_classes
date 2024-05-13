@@ -3,9 +3,12 @@ import torch
 from bert_explain.bert_grad_rollout import BERTAttentionGradRollout
 from experiments_utils import *
 import json
+import gc
 
 
 def parse_args():
+
+    # python bert_att_rollout.py --model ctoraman/hate-speech-bert --txt-dir ../../hatexplain_data/sentences --device cpu --out-dir ../../results/bert-grad-rollout
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, required=True)
@@ -43,7 +46,7 @@ def main():
 
     deactivate_dropout_layers(bert_model)
 
-    grad_rollout = BERTAttentionGradRollout(bert_model, discard_ratio=0.9)
+    count = 0
 
     for name, sent in zip(names, txts):
 
@@ -55,16 +58,26 @@ def main():
         pred = bert_model(**encoded_input)
         pred = pred.logits.detach().numpy().flatten().argmax()
 
+        grad_rollout = BERTAttentionGradRollout(bert_model, discard_ratio=0.9)
         mask = grad_rollout(encoded_input, category_index = pred)
 
-        sentence_tokens = bert_tokenizer.tokenize(sent)
+        sentence_tokens = encoded_input.encodings[0].tokens
 
         output = {
             "tokens_imp": tuple(zip(mask.tolist(), sentence_tokens))
         }
 
-        with open(os.path.join(out_dir, fname), "w") as f:
+        del grad_rollout
+        del mask
+        del sentence_tokens
+        gc.collect()
+
+        with open(fname, "w") as f:
             json.dump(output, f)
+
+        count += 1
+
+    print("Number of processed documents:", count)
 
 
 if __name__ == "__main__":
