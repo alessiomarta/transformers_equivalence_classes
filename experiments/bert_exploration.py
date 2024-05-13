@@ -21,6 +21,7 @@ from experiments_utils import (
     load_raw_sents,
     load_raw_sent,
     load_object,
+    save_object,
 )
 
 
@@ -85,6 +86,8 @@ def interpret(
     mask_or_cls: str,
     iteration: int,
     device: torch.device,
+    min_cap: torch.Tensor,
+    max_cap: torch.Tensor,
     class_map: dict = None,
     txt_out_dir: str = ".",
 ) -> None:
@@ -135,24 +138,44 @@ def interpret(
 
     model.eval()
     with torch.no_grad():
+        # cap input embeddings to bring them back to what the decoder knows
+        capped_input_embedding = input_embedding.clone().to(device)
+        capped_input_embedding[capped_input_embedding < min_cap] = min_cap[
+            capped_input_embedding < min_cap
+        ]
+        capped_input_embedding[capped_input_embedding > max_cap] = max_cap[
+            capped_input_embedding > max_cap
+        ]
         if mask_or_cls == "mask":
-            mlm_pred = decoder(output_embedding.to(device))[0]
+            mlm_pred = decoder(output_embedding)[0]
             mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
+            mlm_pred_capped = decoder(model.bert.encoder(capped_input_embedding)[0])[0]
+            mlm_pred_capped[:, allowed_tokens] = (
+                mlm_pred_capped[:, allowed_tokens] * 100
+            )
+            str_pred_capped = tokenizer.convert_ids_to_tokens(
+                [torch.argmax(mlm_pred_capped[keep_constant_id]).item()]
+            )[0]
+
         else:
-            mlm_pred = decoder(input_embedding.to(device))[0]
-            cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
+            mlm_pred_capped = decoder(model.bert.encoder(capped_input_embedding)[0])[0]
+            cls_pred = model.classifier(model.bert.pooler(output_embedding))
             str_pred = class_map[torch.argmax(cls_pred).item()]
+            cls_pred_capped = model.classifier(
+                model.bert.pooler(model.bert.encoder(capped_input_embedding)[0])
+            )
+            str_pred_capped = class_map[torch.argmax(cls_pred_capped).item()]
 
         modified_sentence_ids = original_sentence_ids.clone().to(device)
         for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
             if w not in ["[CLS]", "[MASK]", "[SEP]"]:
                 print(
-                    f"First top 5 probabilities: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred[idx].topk(5).indices, mlm_pred[idx].topk(5).values)]}"
+                    f"First top 5 probabilities: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred_capped[idx].topk(5).indices, mlm_pred_capped[idx].topk(5).values)]}"
                 )
-                modified_sentence_ids[idx] = torch.argmax(mlm_pred[idx]).item()
+                modified_sentence_ids[idx] = torch.argmax(mlm_pred_capped[idx]).item()
 
         modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
 
@@ -161,12 +184,12 @@ def interpret(
             mlm_pred[:, :, allowed_tokens] = mlm_pred[:, :, allowed_tokens] * 100
             str_preds_modified = tokenizer.convert_ids_to_tokens(
                 torch.argmax(mlm_pred[:, keep_constant_id], dim=-1)
-            )
+            )[0]
         else:
             cls_pred = model(input_ids=modified_sentence_ids.unsqueeze(0))[0]
             str_preds_modified = [
                 class_map[r.item()] for r in torch.argmax(cls_pred, dim=-1)
-            ]
+            ][0]
 
     json_result = {}
     json_result["sentence_id"] = sentence[1]
@@ -180,7 +203,7 @@ def interpret(
         for k, v in (eq_class if len(eq_class) > 0 else enumerate(original_sentence))
     ]
     json_result["modified_sentence"] = modified_sentence
-    json_result["modified_sentence_pred"] = str_preds_modified[0]
+    json_result["modified_sentence_pred"] = str_preds_modified
 
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
@@ -193,10 +216,12 @@ def interpret(
     if not os.path.exists(txt_out_dir):
         os.makedirs(txt_out_dir)
     fname = os.path.join(
-        txt_out_dir, f"{iteration}-{str_pred}-{str_preds_modified[0]}.txt"
+        txt_out_dir,
+        f"{iteration}-{str_pred}-{str_pred_capped}-{str_preds_modified}.txt",
     )
     json_fname = os.path.join(
-        txt_out_dir, f"{iteration}-{str_pred}-{str_preds_modified[0]}.json"
+        txt_out_dir,
+        f"{iteration}-{str_pred}-{str_pred_capped}-{str_preds_modified}.json",
     )
     with open(fname, "w") as file:
         file.write(str_res)
@@ -250,10 +275,9 @@ def main():
     with open(os.path.join(res_path, "params.json"), "w") as file:
         json.dump(vars(args), file)
 
+    print("\tMeasuring input distribution...")
+    sentence_embeddings = []
     for idx, txt in enumerate(txts):
-
-        print(f"Sentence:{idx+1}/{len(txts)}")
-
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
@@ -297,13 +321,32 @@ def main():
                 key=lambda x: x[0],
             ),
         }
-        embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
+        sentence_embeddings.append(
+            bert_model.bert.embeddings(**tokenized_input).to(device)
+        )
+
+    embeddings = torch.stack(sentence_embeddings, dim=-1)
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
+
+    save_object(
+        obj=min_embeddings.cpu(),
+        filename=os.path.join(res_path, "min_distribution.pkl"),
+    )
+    save_object(
+        obj=max_embeddings.cpu(),
+        filename=os.path.join(res_path, "max_distribution.pkl"),
+    )
+
+    for idx, txt in enumerate(txts):
+
+        print(f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}")
 
         print("\tExploration phase")
 
         explore(
             same_equivalence_class=args.exp_type == "same",
-            input_embedding=embedded_input,
+            input_embedding=sentence_embeddings[idx],
             model=bert_model.bert.encoder,
             eq_class_emb_ids=(
                 eq_class_word_ids if len(eq_class_word_ids) > 0 else None
@@ -326,9 +369,15 @@ def main():
                         os.path.join(res_path, txt_dir, filename)
                     ) and filename.lower().endswith(".pkl"):
                         res = load_object(os.path.join(res_path, txt_dir, filename))
+                        min_embeddings = load_object(
+                            os.path.join(res_path, "min_distribution.pkl")
+                        )
+                        max_embeddings = load_object(
+                            os.path.join(res_path, "max_distribution.pkl")
+                        )
                         interpret(
                             sent_filename=(args.txt_dir, txt_dir),
-                            model=bert_model,
+                            model=bert_model.to(device),
                             decoder=(
                                 bert_model.cls
                                 if args.objective == "mask"
@@ -336,14 +385,16 @@ def main():
                             ),
                             tokenizer=bert_tokenizer,
                             class_map=class_map,
-                            input_embedding=res["input_embedding"],
-                            output_embedding=res["output_embedding"],
+                            input_embedding=res["input_embedding"].to(device),
+                            output_embedding=res["output_embedding"].to(device),
                             mask_or_cls=args.objective,
                             iteration=res["iteration"],
                             eq_class_words_ids=eq_class_words_and_ids[txt_dir],
                             txt_out_dir=os.path.join(
                                 res_path, txt_dir, "interpretation"
                             ),
+                            min_cap=min_embeddings.to(device),
+                            max_cap=max_embeddings.to(device),
                             device=device,
                         )
 
