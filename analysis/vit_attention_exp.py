@@ -117,7 +117,7 @@ def main():
         ax2.axis("off")
 
         cbar = plt.colorbar(feature_importance, cax=cax)
-        cbar.set_label("Attention rollout")
+        cbar.set_label("Relevancy")
 
         plt.subplots_adjust(wspace=0, hspace=0)
         plt.savefig(fname)
