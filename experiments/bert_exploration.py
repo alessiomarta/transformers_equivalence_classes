@@ -161,7 +161,7 @@ def interpret(
             )[0]
 
         else:
-            mlm_pred_capped = decoder(model.bert.encoder(capped_input_embedding)[0])[0]
+            mlm_pred_capped = decoder(capped_input_embedding)[0]
             cls_pred = model.classifier(model.bert.pooler(output_embedding))
             str_pred = class_map[torch.argmax(cls_pred).item()]
             cls_pred_capped = model.classifier(
@@ -175,6 +175,7 @@ def interpret(
                 print(
                     f"First top 5 probabilities: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred_capped[idx].topk(5).indices, mlm_pred_capped[idx].topk(5).values)]}"
                 )
+                print("--")
                 modified_sentence_ids[idx] = torch.argmax(mlm_pred_capped[idx]).item()
 
         modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
