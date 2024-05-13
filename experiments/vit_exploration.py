@@ -161,7 +161,6 @@ def main():
     model = model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    str_time = "20240509-122102"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -177,28 +176,23 @@ def main():
 
         input_patches = model.patcher(img.unsqueeze(0))
         input_embedding = model.embedding(input_patches)
+        print("\tExploration phase")
 
-        if False:
-
-            print("\tExploration phase")
-
-            explore(
-                same_equivalence_class=args.exp_type == "same",
-                input_embedding=input_embedding,
-                model=model.encoder,
-                threshold=args.threshold,
-                n_iterations=args.iter,
-                pred_id=args.keep_constant,
-                eq_class_emb_ids=(
-                    None
-                    if eq_class_patch[names[idx]] == []
-                    else eq_class_patch[names[idx]]
-                ),
-                device=device,
-                out_dir=os.path.join(res_path, names[idx]),
-                keep_timing=True,
-                save_each=args.save_each,
-            )
+        explore(
+            same_equivalence_class=args.exp_type == "same",
+            input_embedding=input_embedding,
+            model=model.encoder,
+            threshold=args.threshold,
+            n_iterations=args.iter,
+            pred_id=args.keep_constant,
+            eq_class_emb_ids=(
+                None if eq_class_patch[names[idx]] == [] else eq_class_patch[names[idx]]
+            ),
+            device=device,
+            out_dir=os.path.join(res_path, names[idx]),
+            keep_timing=True,
+            save_each=args.save_each,
+        )
 
     print("\tInterpretation phase")
 

@@ -12,6 +12,7 @@ import itertools
 from numpy import random
 from transformers import BertTokenizerFast
 import torch
+from numpy import around
 from simec.logics import explore
 from experiments_utils import (
     load_bert_model,
@@ -148,6 +149,9 @@ def interpret(
         modified_sentence_ids = original_sentence_ids.clone().to(device)
         for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
             if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                print(
+                    f"First top 5 probabilities: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred[idx].topk(5).indices, mlm_pred[idx].topk(5).values)]}"
+                )
                 modified_sentence_ids[idx] = torch.argmax(mlm_pred[idx]).item()
 
         modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
@@ -248,7 +252,7 @@ def main():
 
     for idx, txt in enumerate(txts):
 
-        print(f"Sentence:{idx}/{len(txts)}")
+        print(f"Sentence:{idx+1}/{len(txts)}")
 
         tokenized_input = bert_tokenizer(
             txt,

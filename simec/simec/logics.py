@@ -254,11 +254,11 @@ def explore(
         with torch.no_grad():
             # Proceeed along a null direction
             if same_equivalence_class:
-                delta = (torch.tensor(1) / torch.sqrt(torch.max(eigenvalues))).to(
+                delta = (torch.tensor(10) / torch.sqrt(torch.max(eigenvalues))).to(
                     device
                 )
             else:
-                delta = (torch.tensor(2) / torch.sqrt(torch.max(eigenvalues))).to(
+                delta = (torch.tensor(20) / torch.sqrt(torch.max(eigenvalues))).to(
                     device
                 )
             if eq_class_emb_ids:
@@ -273,9 +273,9 @@ def explore(
         input_emb = input_emb.to(device).requires_grad_(True)
         output_emb = model(input_emb)[0].to(device)
         if i % save_each == 0:
-            print(f"Iteration: {i}\tDelta: {around(delta.cpu().numpy(), 5)}")
             if keep_timing:
                 tic_save = time.time()
+            print(f"Iteration: {i}\tDelta: {around(delta.cpu().numpy(), 5)}")
             if not os.path.exists(out_dir):
                 os.makedirs(out_dir)
             save_object(
