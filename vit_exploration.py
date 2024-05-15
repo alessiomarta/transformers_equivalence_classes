@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
+from torchvision import transforms
 from simec.logics import explore
 from models.vit import PatchDecoder
 from experiments_utils import (
@@ -59,27 +60,9 @@ def interpret(
     with torch.no_grad():
         pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(device)
 
-        print(
-            f"Min before cap: {np.around(torch.min(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax before cap: {np.around(torch.max(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-
         # cap input embeddings to bring them back to what the decoder knows
         input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
         input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
-
-        print(
-            f"\tMin after cap: {np.around(torch.min(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax after cap: {np.around(torch.max(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
 
         pred_capped = torch.argmax(
             model.classifier(model.encoder(input_embedding)[0][:, 0])
@@ -121,40 +104,31 @@ def interpret(
             modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
             if len(modified_image.size()) == 2:
                 modified_image = modified_image.unsqueeze(0)
-        print(
-            f"\tMin after decoder: {np.around(torch.min(modified_image).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax after decoder: {np.around(torch.max(modified_image).cpu().numpy(), 3)}",
-        )
         modified_image_pred = torch.argmax(model(modified_image.unsqueeze(0))[0])
-        if False:
-            fname = os.path.join(
-                img_out_dir,
-                f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png",
-            )
-            _, ax = plt.subplots()
-            ax.imshow(
-                modified_image.squeeze().cpu().numpy(),
-                cmap="gray",
-                norm=Normalize(vmin=-1, vmax=1),
-            )
-            for p in patch_idx:
-                ax.add_patch(
-                    Rectangle(
-                        tuple(p + np.array([-0.5, -0.5])),
-                        model.embedding.patch_size,
-                        model.embedding.patch_size,
-                        linewidth=1,
-                        edgecolor="r",
-                        facecolor="none",
-                    )
+        fname = os.path.join(
+            img_out_dir, f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png"
+        )
+        _, ax = plt.subplots()
+        ax.imshow(
+            modified_image.squeeze().cpu().numpy(),
+            cmap="gray",
+            norm=Normalize(vmin=-1, vmax=1),
+        )
+        for p in patch_idx:
+            ax.add_patch(
+                Rectangle(
+                    tuple(p + np.array([-0.5, -0.5])),
+                    model.embedding.patch_size,
+                    model.embedding.patch_size,
+                    linewidth=1,
+                    edgecolor="r",
+                    facecolor="none",
                 )
-            if not os.path.exists(img_out_dir):
-                os.makedirs(img_out_dir)
-            plt.savefig(fname)
-            plt.close()
+            )
+        if not os.path.exists(img_out_dir):
+            os.makedirs(img_out_dir)
+        plt.savefig(fname)
+        plt.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -195,60 +169,55 @@ def main():
     model = model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    str_time = "20240513-155827"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
 
-    if False:
+    if not os.path.exists(res_path):
+        os.makedirs(res_path)
+    with open(os.path.join(res_path, "params.json"), "w") as file:
+        json.dump(vars(args), file)
 
-        if not os.path.exists(res_path):
-            os.makedirs(res_path)
-        with open(os.path.join(res_path, "params.json"), "w") as file:
-            json.dump(vars(args), file)
+    print("\tMeasuring input distribution...")
+    patches_embeddings = []
+    for idx, img in enumerate(images):
+        input_patches = model.patcher(img.unsqueeze(0))
+        patches_embeddings.append((input_patches, model.embedding(input_patches)))
 
-        print("\tMeasuring input distribution...")
-        patches_embeddings = []
-        for idx, img in enumerate(images):
-            input_patches = model.patcher(img.unsqueeze(0))
-            patches_embeddings.append((input_patches, model.embedding(input_patches)))
+    embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
 
-        embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-        min_embeddings = torch.min(embeddings, dim=-1).values
-        max_embeddings = torch.max(embeddings, dim=-1).values
+    save_object(
+        obj=min_embeddings.cpu(),
+        filename=os.path.join(res_path, "min_distribution.pkl"),
+    )
+    save_object(
+        obj=max_embeddings.cpu(),
+        filename=os.path.join(res_path, "max_distribution.pkl"),
+    )
 
-        save_object(
-            obj=min_embeddings.cpu(),
-            filename=os.path.join(res_path, "min_distribution.pkl"),
+    for idx, img in enumerate(images):
+
+        print("Image:", idx)
+        input_patches, input_embedding = patches_embeddings[idx]
+
+        print("\tExploration phase")
+        explore(
+            same_equivalence_class=args.exp_type == "same",
+            input_embedding=input_embedding,
+            model=model.encoder,
+            threshold=args.threshold,
+            n_iterations=args.iter,
+            pred_id=args.keep_constant,
+            eq_class_emb_ids=(
+                None if eq_class_patch[names[idx]] == [] else eq_class_patch[names[idx]]
+            ),
+            device=device,
+            out_dir=os.path.join(res_path, names[idx]),
+            keep_timing=True,
+            save_each=args.save_each,
         )
-        save_object(
-            obj=max_embeddings.cpu(),
-            filename=os.path.join(res_path, "max_distribution.pkl"),
-        )
-
-        for idx, img in enumerate(images):
-
-            print("Image:", idx)
-            input_patches, input_embedding = patches_embeddings[idx]
-
-            print("\tExploration phase")
-            explore(
-                same_equivalence_class=args.exp_type == "same",
-                input_embedding=input_embedding,
-                model=model.encoder,
-                threshold=args.threshold,
-                n_iterations=args.iter,
-                pred_id=args.keep_constant,
-                eq_class_emb_ids=(
-                    None
-                    if eq_class_patch[names[idx]] == []
-                    else eq_class_patch[names[idx]]
-                ),
-                device=device,
-                out_dir=os.path.join(res_path, names[idx]),
-                keep_timing=True,
-                save_each=args.save_each,
-            )
 
     print("\tInterpretation phase")
 

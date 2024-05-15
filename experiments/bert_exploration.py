@@ -133,6 +133,7 @@ def interpret(
         .squeeze()
         .to(device)
     )
+    print("Iteration: ", iteration)
     original_sentence = tokenizer.convert_ids_to_tokens(original_sentence_ids)
     allowed_tokens = get_allowed_tokens(tokenizer)
 
@@ -149,6 +150,12 @@ def interpret(
         if mask_or_cls == "mask":
             mlm_pred = decoder(output_embedding)[0]
             mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
+            print(
+                "Pre-capped decoded sentence "
+                + " ".join(
+                    tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred, dim=-1))
+                )
+            )
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
@@ -156,12 +163,28 @@ def interpret(
             mlm_pred_capped[:, allowed_tokens] = (
                 mlm_pred_capped[:, allowed_tokens] * 100
             )
+            print(
+                "Capped decoded sentence "
+                + " ".join(
+                    tokenizer.convert_ids_to_tokens(
+                        torch.argmax(mlm_pred_capped, dim=-1)
+                    )
+                )
+            )
             str_pred_capped = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred_capped[keep_constant_id]).item()]
             )[0]
 
         else:
             mlm_pred_capped = decoder(capped_input_embedding)[0]
+            print(
+                "Capped decoded sentence "
+                + " ".join(
+                    tokenizer.convert_ids_to_tokens(
+                        torch.argmax(mlm_pred_capped, dim=-1)
+                    )
+                )
+            )
             cls_pred = model.classifier(model.bert.pooler(output_embedding))
             str_pred = class_map[torch.argmax(cls_pred).item()]
             cls_pred_capped = model.classifier(
@@ -173,24 +196,40 @@ def interpret(
         for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
             if w not in ["[CLS]", "[MASK]", "[SEP]"]:
                 print(
-                    f"First top 5 probabilities: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred_capped[idx].topk(5).indices, mlm_pred_capped[idx].topk(5).values)]}"
+                    f"First top 5 probabilities after cap: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred_capped[idx].topk(5).indices, mlm_pred_capped[idx].topk(5).values)]}"
                 )
                 print("--")
                 modified_sentence_ids[idx] = torch.argmax(mlm_pred_capped[idx]).item()
 
-        modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
+        if mask_or_cls == "mask":
+            modified_sentence_ids[keep_constant_id] = torch.argmax(
+                mlm_pred[keep_constant_id]
+            ).item()
 
         if mask_or_cls == "mask":
-            mlm_pred = model(input_ids=modified_sentence_ids.unsqueeze(0))[0]
+            pred = model(input_ids=modified_sentence_ids.unsqueeze(0))
+            mlm_pred = pred[0]
             mlm_pred[:, :, allowed_tokens] = mlm_pred[:, :, allowed_tokens] * 100
             str_preds_modified = tokenizer.convert_ids_to_tokens(
                 torch.argmax(mlm_pred[:, keep_constant_id], dim=-1)
             )[0]
+
+            for idx, w in (
+                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
+            ):
+                if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                    print(
+                        f"First top 5 probabilities after cap: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(pred[idx].topk(5).indices, pred[idx].topk(5).values)]}"
+                    )
+                    print("--")
+                    modified_sentence_ids[idx] = torch.argmax(mlm_pred[idx]).item()
         else:
             cls_pred = model(input_ids=modified_sentence_ids.unsqueeze(0))[0]
             str_preds_modified = [
                 class_map[r.item()] for r in torch.argmax(cls_pred, dim=-1)
             ][0]
+
+    modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
 
     json_result = {}
     json_result["sentence_id"] = sentence[1]
@@ -198,7 +237,7 @@ def interpret(
     json_result["tokenized_original_sentence"] = original_sentence
     json_result["target_token_id"] = keep_constant_id
     json_result["target_token"] = keep_constant_txt
-    json_result["target_token_pred"] = str_pred
+    json_result["target_token_pred"] = (str_pred, str_pred_capped)
     json_result["eq_class_words"] = [
         (k, v)
         for k, v in (eq_class if len(eq_class) > 0 else enumerate(original_sentence))
@@ -208,7 +247,7 @@ def interpret(
 
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
-        + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
+        + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred'][0]}', and '{json_result['target_token_pred'][1]}' if capped\n"
         + f"Equivalence class exploration for the following words: {', ' .join(f'{el[1]} [{el[0]}]' for el in json_result['eq_class_words'])}\n"
         + "\n\n Modified sentence and respective prediction\n"
         + f"{' '.join(json_result['modified_sentence'])}\t{json_result['modified_sentence_pred']}"
@@ -326,7 +365,7 @@ def main():
             bert_model.bert.embeddings(**tokenized_input).to(device)
         )
 
-    embeddings = torch.stack(sentence_embeddings, dim=-1)
+    embeddings = torch.concat([s.permute(0, 2, 1) for s in sentence_embeddings], dim=-1)
     min_embeddings = torch.min(embeddings, dim=-1).values
     max_embeddings = torch.max(embeddings, dim=-1).values
 
