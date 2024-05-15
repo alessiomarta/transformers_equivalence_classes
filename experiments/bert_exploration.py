@@ -392,9 +392,15 @@ def main():
             input_embedding=sentence_embeddings[idx],
             model=bert_model.bert.encoder,
             eq_class_emb_ids=(
-                eq_class_word_ids[idx] if len(eq_class_word_ids) > 0 else None
+<<<<<<< HEAD
+
+=======
+                None
+                if eq_class_words_and_ids[names[idx]]["eq_class_w"] == []
+                else [t[0] for t in eq_class_words_and_ids[names[idx]]["eq_class_w"]]
+>>>>>>> 2d36ea6f679fc2b09989236b3f1acad5e4b8657a
             ),
-            pred_id=keep_constant,
+            pred_id=eq_class_words_and_ids[names[idx]]["keep_constant"][0],
             device=device,
             threshold=args.threshold,
             n_iterations=args.iter,

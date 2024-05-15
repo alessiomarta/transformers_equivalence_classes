@@ -125,7 +125,7 @@ def pullback_eigenvalues(
         )
     ).to(device)
 
-    #torch.backends.cuda.preferred_linalg_library("magma")
+   
 
     # Compute the pullback metric and its eigenvalues and eigenvectors
     eigenvalues, _ = pullback(
@@ -218,8 +218,11 @@ def explore(
         times = defaultdict(float)
         times["n_iterations"] = n_iterations
 
-    #torch.backends.cuda.preferred_linalg_library("magma")
+<<<<<<< HEAD
 
+
+=======
+>>>>>>> 2d36ea6f679fc2b09989236b3f1acad5e4b8657a
     for i in range(n_iterations):
         if keep_timing:
             tic = time.time()
