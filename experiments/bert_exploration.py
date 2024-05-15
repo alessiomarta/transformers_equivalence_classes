@@ -392,7 +392,7 @@ def main():
             input_embedding=sentence_embeddings[idx],
             model=bert_model.bert.encoder,
             eq_class_emb_ids=(
-                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+                eq_class_word_ids[idx] if len(eq_class_word_ids) > 0 else None
             ),
             pred_id=keep_constant,
             device=device,

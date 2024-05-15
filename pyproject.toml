@@ -8,9 +8,6 @@ packages = [{include = "input_space_inspection"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-torch = "^2.2.2"
-torchvision = "^0.17.2"
-torchsummary = "^1.5.1"
 numpy = "^1.26.4"
 matplotlib = "^3.8.4"
 transformers = "^4.39.3"
@@ -18,7 +15,9 @@ transformer-implementations = "^0.0.9"
 pillow = "^10.3.0"
 opencv-python = "^4.9.0.80"
 highlight-text = "^0.2"
-
+torch = "^2.3.0"
+torchvision = "^0.18.0"
+torchsummary = "^1.5.1"
 
 [build-system]
 requires = ["poetry-core"]
