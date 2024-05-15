@@ -218,8 +218,6 @@ def explore(
         times = defaultdict(float)
         times["n_iterations"] = n_iterations
 
-    # torch.backends.cuda.preferred_linalg_library("magma")
-
     for i in range(n_iterations):
         if keep_timing:
             tic = time.time()
