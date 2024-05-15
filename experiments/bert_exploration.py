@@ -306,7 +306,7 @@ def main():
     bert_model = bert_model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    str_time = "20240514-065725"
+    # str_time = "20240514-065725"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -365,43 +365,40 @@ def main():
         sentence_embeddings.append(
             bert_model.bert.embeddings(**tokenized_input).to(device)
         )
-    if False:
 
-        embeddings = torch.concat(
-            [s.permute(0, 2, 1) for s in sentence_embeddings], dim=-1
+    embeddings = torch.concat([s.permute(0, 2, 1) for s in sentence_embeddings], dim=-1)
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
+
+    save_object(
+        obj=min_embeddings.cpu(),
+        filename=os.path.join(res_path, "min_distribution.pkl"),
+    )
+    save_object(
+        obj=max_embeddings.cpu(),
+        filename=os.path.join(res_path, "max_distribution.pkl"),
+    )
+
+    for idx, txt in enumerate(txts):
+
+        print(f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}")
+
+        print("\tExploration phase")
+
+        explore(
+            same_equivalence_class=args.exp_type == "same",
+            input_embedding=sentence_embeddings[idx],
+            model=bert_model.bert.encoder,
+            eq_class_emb_ids=(
+                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+            ),
+            pred_id=keep_constant,
+            device=device,
+            threshold=args.threshold,
+            n_iterations=args.iter,
+            out_dir=os.path.join(res_path, names[idx]),
+            save_each=args.save_each,
         )
-        min_embeddings = torch.min(embeddings, dim=-1).values
-        max_embeddings = torch.max(embeddings, dim=-1).values
-
-        save_object(
-            obj=min_embeddings.cpu(),
-            filename=os.path.join(res_path, "min_distribution.pkl"),
-        )
-        save_object(
-            obj=max_embeddings.cpu(),
-            filename=os.path.join(res_path, "max_distribution.pkl"),
-        )
-
-        for idx, txt in enumerate(txts):
-
-            print(f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}")
-
-            print("\tExploration phase")
-
-            explore(
-                same_equivalence_class=args.exp_type == "same",
-                input_embedding=sentence_embeddings[idx],
-                model=bert_model.bert.encoder,
-                eq_class_emb_ids=(
-                    eq_class_word_ids if len(eq_class_word_ids) > 0 else None
-                ),
-                pred_id=keep_constant,
-                device=device,
-                threshold=args.threshold,
-                n_iterations=args.iter,
-                out_dir=os.path.join(res_path, names[idx]),
-                save_each=args.save_each,
-            )
 
     print("\tInterpretation phase")
 
