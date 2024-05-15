@@ -366,7 +366,9 @@ def main():
             bert_model.bert.embeddings(**tokenized_input).to(device)
         )
 
-    embeddings = torch.concat([s.permute(0, 2, 1) for s in sentence_embeddings], dim=-1)
+    embeddings = torch.concat(
+        [s.clone().permute(0, 2, 1) for s in sentence_embeddings], dim=-1
+    )
     min_embeddings = torch.min(embeddings, dim=-1).values
     max_embeddings = torch.max(embeddings, dim=-1).values
 
