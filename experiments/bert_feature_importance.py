@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.cm import ScalarMappable
 from matplotlib.colors import Normalize
-from transformers import BertTokenizerFast
+from transformers import BertTokenizerFast, logging
 from simec.logics import pullback_eigenvalues
 from experiments_utils import (
     load_bert_model,
@@ -217,9 +217,9 @@ def main():
     class_map = None
     if args.objective == "cls":
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
-
+    logging.set_verbosity_error()
     bert_tokenizer, bert_model = load_bert_model(
-        args.model_name, mask_or_cls=args.objective
+        args.model_name, mask_or_cls=args.objective, device=device
     )
     deactivate_dropout_layers(bert_model)
     bert_model.to(device)

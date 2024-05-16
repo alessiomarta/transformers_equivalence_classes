@@ -1,14 +1,11 @@
 import argparse
 import torch
 import string
-from transformers import BertTokenizerFast
+from transformers import BertTokenizerFast, logging
 from experiments_utils import (
     load_bert_model,
-    get_allowed_tokens,
     deactivate_dropout_layers,
     load_raw_sents,
-    load_raw_sent,
-    load_object,
 )
 
 
