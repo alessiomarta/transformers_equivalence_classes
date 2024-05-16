@@ -12,6 +12,7 @@ import time
 from typing import List
 from collections import defaultdict
 import pickle
+from numpy import around
 import torch
 
 
@@ -83,7 +84,7 @@ def pullback_eigenvalues(
     model: torch.nn.Module,
     pred_id: int,
     device: torch.device,
-    keep_timing: bool = False,
+    keep_timing: bool = True,
     out_dir: str = ".",
 ):
     """
@@ -158,13 +159,12 @@ def explore(
     same_equivalence_class: bool,
     input_embedding: torch.Tensor,
     model: torch.nn.Module,
-    delta: float,
     threshold: float,
     n_iterations: int,
     pred_id: int,
     device: torch.device,
     eq_class_emb_ids: List[int] = None,
-    keep_timing: bool = False,
+    keep_timing: bool = True,
     save_each: int = 10,
     out_dir: str = ".",
 ):
@@ -217,7 +217,6 @@ def explore(
         times["n_iterations"] = n_iterations
 
     for i in range(n_iterations):
-        print(i)
         if keep_timing:
             tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
@@ -254,6 +253,14 @@ def explore(
 
         with torch.no_grad():
             # Proceeed along a null direction
+            if same_equivalence_class:
+                delta = (torch.tensor(1) / torch.sqrt(torch.max(eigenvalues))).to(
+                    device
+                )
+            else:
+                delta = (torch.tensor(2) / torch.sqrt(torch.max(eigenvalues))).to(
+                    device
+                )
             if eq_class_emb_ids:
                 input_emb[0, eq_class_emb_ids] = (
                     input_emb[0, eq_class_emb_ids] + eigenvecs * delta
@@ -268,6 +275,7 @@ def explore(
         if i % save_each == 0:
             if keep_timing:
                 tic_save = time.time()
+            print(f"Iteration: {i}\tDelta: {around(delta.cpu().numpy(), 5)}")
             if not os.path.exists(out_dir):
                 os.makedirs(out_dir)
             save_object(
@@ -276,6 +284,7 @@ def explore(
                     "output_embedding": output_emb.cpu(),
                     "distance": distance.cpu(),
                     "iteration": i,
+                    "delta": delta.cpu(),
                 },
                 os.path.join(out_dir, f"{i}.pkl"),
             )
@@ -296,6 +305,7 @@ def explore(
                 "distance": distance.cpu(),
                 "iteration": n_iterations,
                 "time": times["time"],
+                "delta": delta.cpu(),
             },
             os.path.join(out_dir, f"{n_iterations}.pkl"),
         )
@@ -306,6 +316,7 @@ def explore(
                 "output_embedding": output_emb.cpu(),
                 "distance": distance.cpu(),
                 "iteration": n_iterations,
+                "delta": delta.cpu(),
             },
             os.path.join(out_dir, f"{n_iterations}.pkl"),
         )

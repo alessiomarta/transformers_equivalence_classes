@@ -76,6 +76,26 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
     return torch.stack(images), images_names
 
 
+def load_raw_image(img_dir: str, image_filename: str) -> Tuple[torch.Tensor, List[str]]:
+    """
+    Load a single image from a specific image file within a directory
+
+    Args:
+        img_dir: The directory from which images are loaded.
+
+    Returns:
+        A tuple containing a batch of tensor images and their corresponding names.
+    """
+    transform = transforms.Compose(
+        [transforms.ToTensor(), transforms.Normalize(0.5, 0.5)]
+    )
+    if os.path.isfile(os.path.join(img_dir, image_filename + ".jpg")):
+        image = Image.open(os.path.join(img_dir, image_filename + ".jpg")).convert("L")
+        if image.size != (28, 28):
+            image = image.resize((28, 28))
+        return transform(image), image_filename.split(".")[0]
+
+
 def load_raw_sents(txt_dir: str) -> Tuple[List[str], List[str]]:
     """
     Load sentences from text files within a specified directory.

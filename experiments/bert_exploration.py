@@ -10,8 +10,9 @@ import time
 import json
 import itertools
 from numpy import random
-from transformers import BertTokenizerFast
+from transformers import BertTokenizerFast, logging
 import torch
+from numpy import around
 from simec.logics import explore
 from experiments_utils import (
     load_bert_model,
@@ -20,6 +21,7 @@ from experiments_utils import (
     load_raw_sents,
     load_raw_sent,
     load_object,
+    save_object,
 )
 
 
@@ -84,8 +86,8 @@ def interpret(
     mask_or_cls: str,
     iteration: int,
     device: torch.device,
-    top_k: int = 3,
-    max_n_comb: int = 100,
+    min_cap: torch.Tensor,
+    max_cap: torch.Tensor,
     class_map: dict = None,
     txt_out_dir: str = ".",
 ) -> None:
@@ -121,59 +123,113 @@ def interpret(
     )
     keep_constant_id, keep_constant_txt = keep_constant
     sentence = load_raw_sent(txts_dir, sent_name)
-    original_sentence = tokenizer.convert_ids_to_tokens(
+    original_sentence_ids = (
         tokenizer(
             sentence[0],
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
-        )["input_ids"].squeeze()
+        )["input_ids"]
+        .squeeze()
+        .to(device)
     )
+    print("Iteration: ", iteration)
+    original_sentence = tokenizer.convert_ids_to_tokens(original_sentence_ids)
     allowed_tokens = get_allowed_tokens(tokenizer)
 
     model.eval()
     with torch.no_grad():
+        # cap input embeddings to bring them back to what the decoder knows
+        capped_input_embedding = input_embedding.clone().to(device)
+        capped_input_embedding[capped_input_embedding < min_cap] = min_cap[
+            capped_input_embedding < min_cap
+        ]
+        capped_input_embedding[capped_input_embedding > max_cap] = max_cap[
+            capped_input_embedding > max_cap
+        ]
         if mask_or_cls == "mask":
-            mlm_pred = decoder(output_embedding.to(device))[0]
+            mlm_pred = decoder(output_embedding)[0]
             mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
+            print(
+                "Pre-capped decoded sentence "
+                + " ".join(
+                    tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred, dim=-1))
+                )
+            )
             str_pred = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred[keep_constant_id]).item()]
             )[0]
-        else:
-            mlm_pred = decoder(input_embedding.to(device))[0]
-            cls_pred = model.classifier(model.bert.pooler(output_embedding.to(device)))
-            str_pred = class_map[torch.argmax(cls_pred).item()]
-
-    select_eq_class = {}
-    for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
-        if w not in ["[CLS]", "[MASK]", "[SEP]"]:
-            select_eq_class[(idx, w)] = tuple(
-                zip(
-                    mlm_pred[idx].topk(top_k).values.tolist(),
-                    tokenizer.convert_ids_to_tokens(mlm_pred[idx].topk(top_k).indices),
+            mlm_pred_capped = decoder(model.bert.encoder(capped_input_embedding)[0])[0]
+            mlm_pred_capped[:, allowed_tokens] = (
+                mlm_pred_capped[:, allowed_tokens] * 100
+            )
+            print(
+                "Capped decoded sentence "
+                + " ".join(
+                    tokenizer.convert_ids_to_tokens(
+                        torch.argmax(mlm_pred_capped, dim=-1)
+                    )
                 )
             )
+            str_pred_capped = tokenizer.convert_ids_to_tokens(
+                [torch.argmax(mlm_pred_capped[keep_constant_id]).item()]
+            )[0]
 
-    combinations, combined_sentences, combined_sentences_ids = (
-        generate_combined_sentences(
-            original_tokenized_sentence=original_sentence.copy(),
-            eq_class_words=select_eq_class,
-            tokenizer=tokenizer,
-            max_num=max_n_comb,
-        )
-    )
-    with torch.no_grad():
-        if mask_or_cls == "mask":
-            mlm_pred = model(combined_sentences_ids.to(device))[0]
-            mlm_pred[:, :, allowed_tokens] = mlm_pred[:, :, allowed_tokens] * 100
-            str_preds_combined = tokenizer.convert_ids_to_tokens(
-                torch.argmax(mlm_pred[:, keep_constant_id], dim=-1)
-            )
         else:
-            cls_pred = model(combined_sentences_ids.to(device))[0]
-            str_preds_combined = [
+            mlm_pred_capped = decoder(capped_input_embedding)[0]
+            print(
+                "Capped decoded sentence "
+                + " ".join(
+                    tokenizer.convert_ids_to_tokens(
+                        torch.argmax(mlm_pred_capped, dim=-1)
+                    )
+                )
+            )
+            cls_pred = model.classifier(model.bert.pooler(output_embedding))
+            str_pred = class_map[torch.argmax(cls_pred).item()]
+            cls_pred_capped = model.classifier(
+                model.bert.pooler(model.bert.encoder(capped_input_embedding)[0])
+            )
+            str_pred_capped = class_map[torch.argmax(cls_pred_capped).item()]
+
+        modified_sentence_ids = original_sentence_ids.clone().to(device)
+        for idx, w in eq_class if len(eq_class) > 0 else enumerate(original_sentence):
+            if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                print(
+                    f"First top 5 probabilities after cap: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred_capped[idx].topk(5).indices, mlm_pred_capped[idx].topk(5).values)]}"
+                )
+                print("--")
+                modified_sentence_ids[idx] = torch.argmax(mlm_pred_capped[idx]).item()
+
+        if mask_or_cls == "mask":
+            modified_sentence_ids[keep_constant_id] = torch.argmax(
+                mlm_pred[keep_constant_id]
+            ).item()
+
+        if mask_or_cls == "mask":
+            pred = model(input_ids=modified_sentence_ids.unsqueeze(0))
+            mlm_pred = pred[0].squeeze()
+            mlm_pred[:, allowed_tokens] = mlm_pred[:, allowed_tokens] * 100
+            str_preds_modified = tokenizer.convert_ids_to_tokens(
+                [torch.argmax(mlm_pred[keep_constant_id], dim=-1)]
+            )[0]
+
+            for idx, w in (
+                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
+            ):
+                if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                    print(
+                        f"First top 5 probabilities after cap: {[(tokenizer.convert_ids_to_tokens([v])[0], around(p.item(),3)) for v,p in zip(mlm_pred[idx].topk(5).indices, mlm_pred[idx].topk(5).values)]}"
+                    )
+                    print("--")
+                    modified_sentence_ids[idx] = torch.argmax(mlm_pred[idx]).item()
+        else:
+            cls_pred = model(input_ids=modified_sentence_ids.unsqueeze(0))[0]
+            str_preds_modified = [
                 class_map[r.item()] for r in torch.argmax(cls_pred, dim=-1)
-            ]
+            ][0]
+
+    modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
 
     json_result = {}
     json_result["sentence_id"] = sentence[1]
@@ -181,40 +237,32 @@ def interpret(
     json_result["tokenized_original_sentence"] = original_sentence
     json_result["target_token_id"] = keep_constant_id
     json_result["target_token"] = keep_constant_txt
-    json_result["target_token_pred"] = str_pred
-    json_result["eq_class_words"] = {
-        f"{k[0]}_{k[1]}": v for k, v in list(select_eq_class.items())
-    }
-    json_result["alternative_prompts"] = [
-        (sent, pred, comb)
-        for sent, pred, comb in zip(
-            combined_sentences, str_preds_combined, combinations
-        )
-        if pred == str_pred
+    json_result["target_token_pred"] = (str_pred, str_pred_capped)
+    json_result["eq_class_words"] = [
+        (k, v)
+        for k, v in (eq_class if len(eq_class) > 0 else enumerate(original_sentence))
     ]
-
-    max_width = max(len(str(r[0])) for r in json_result["alternative_prompts"])
-    used = set(e for el in json_result["alternative_prompts"] for e in el[-1])
+    json_result["modified_sentence"] = modified_sentence
+    json_result["modified_sentence_pred"] = str_preds_modified
 
     str_res = (
         f"{json_result['sentence_id']}: {json_result['sentence']}\n"
-        + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred']}'\n"
-        + f"Equivalence class exploration for the following words: {', ' .join(w for _, w in list(select_eq_class.keys()))}\n"
-        + "\n".join(
-            f"Equivalence class for '{k[1]}' (max {top_k} words): {', '.join(el[1] for el in v if el[1] in used)}"
-            for k, v in list(select_eq_class.items())
-        )
-        + "\n\n Alternative prompts and respective predictions\n"
-        + "\n".join(
-            f"{r[0]:<{max_width}}\t{str(r[1]):>10}"
-            for r in json_result["alternative_prompts"]
-        )
+        + f"Target token to keep constant: {json_result['target_token']}, predicted as '{json_result['target_token_pred'][0]}', and '{json_result['target_token_pred'][1]}' if capped\n"
+        + f"Equivalence class exploration for the following words: {', ' .join(f'{el[1]} [{el[0]}]' for el in json_result['eq_class_words'])}\n"
+        + "\n\n Modified sentence and respective prediction\n"
+        + f"{' '.join(json_result['modified_sentence'])}\t{json_result['modified_sentence_pred']}"
     )
 
     if not os.path.exists(txt_out_dir):
         os.makedirs(txt_out_dir)
-    fname = os.path.join(txt_out_dir, f"{iteration}-{str_pred}.txt")
-    json_fname = os.path.join(txt_out_dir, f"{iteration}-{str_pred}.json")
+    fname = os.path.join(
+        txt_out_dir,
+        f"{iteration}-{str_pred}-{str_pred_capped}-{str_preds_modified}.txt",
+    )
+    json_fname = os.path.join(
+        txt_out_dir,
+        f"{iteration}-{str_pred}-{str_pred_capped}-{str_preds_modified}.json",
+    )
     with open(fname, "w") as file:
         file.write(str_res)
     with open(json_fname, "w") as file:
@@ -226,12 +274,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
     parser.add_argument("--objective", type=str, choices=["cls", "mask"], required=True)
     parser.add_argument("--exp-name", type=str, required=True)
-    parser.add_argument("--delta", type=float, default=9e-1)
     parser.add_argument("--threshold", type=float, default=1e-2)
     parser.add_argument("--iter", type=int, default=100)
+    parser.add_argument("--save-each", type=int, default=1)
     parser.add_argument("--txt-dir", type=str, required=True)
-    parser.add_argument("--max-combinations", type=int, default=100)
-    parser.add_argument("--top-k", type=int, default=3)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--device", type=str)
@@ -252,7 +298,7 @@ def main():
     class_map = None
     if args.objective == "cls":
         class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
-
+    logging.set_verbosity_error()
     bert_tokenizer, bert_model = load_bert_model(
         args.model_name, mask_or_cls=args.objective, device=device
     )
@@ -260,6 +306,7 @@ def main():
     bert_model = bert_model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
+    # str_time = "20240514-065725"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -269,10 +316,9 @@ def main():
     with open(os.path.join(res_path, "params.json"), "w") as file:
         json.dump(vars(args), file)
 
+    print("\tMeasuring input distribution...")
+    sentence_embeddings = []
     for idx, txt in enumerate(txts):
-
-        print(f"Sentence:{idx}/{len(txts)}")
-
         tokenized_input = bert_tokenizer(
             txt,
             return_tensors="pt",
@@ -316,24 +362,46 @@ def main():
                 key=lambda x: x[0],
             ),
         }
+        sentence_embeddings.append(
+            bert_model.bert.embeddings(**tokenized_input).to(device)
+        )
 
-        embedded_input = bert_model.bert.embeddings(**tokenized_input).to(device)
+    embeddings = torch.concat(
+        [s.clone().permute(0, 2, 1) for s in sentence_embeddings], dim=-1
+    )
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
+
+    save_object(
+        obj=min_embeddings.cpu(),
+        filename=os.path.join(res_path, "min_distribution.pkl"),
+    )
+    save_object(
+        obj=max_embeddings.cpu(),
+        filename=os.path.join(res_path, "max_distribution.pkl"),
+    )
+
+    for idx, txt in enumerate(txts):
+
+        print(f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}")
+
         print("\tExploration phase")
 
         explore(
             same_equivalence_class=args.exp_type == "same",
-            input_embedding=embedded_input,
+            input_embedding=sentence_embeddings[idx],
             model=bert_model.bert.encoder,
             eq_class_emb_ids=(
-                eq_class_word_ids if len(eq_class_word_ids) > 0 else None
+                None
+                if eq_class_words_and_ids[names[idx]]["eq_class_w"] == []
+                else [t[0] for t in eq_class_words_and_ids[names[idx]]["eq_class_w"]]
             ),
-            pred_id=keep_constant,
+            pred_id=eq_class_words_and_ids[names[idx]]["keep_constant"][0],
             device=device,
-            delta=args.delta,
             threshold=args.threshold,
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),
-            save_each=1,
+            save_each=args.save_each,
         )
 
     print("\tInterpretation phase")
@@ -346,9 +414,15 @@ def main():
                         os.path.join(res_path, txt_dir, filename)
                     ) and filename.lower().endswith(".pkl"):
                         res = load_object(os.path.join(res_path, txt_dir, filename))
+                        min_embeddings = load_object(
+                            os.path.join(res_path, "min_distribution.pkl")
+                        )
+                        max_embeddings = load_object(
+                            os.path.join(res_path, "max_distribution.pkl")
+                        )
                         interpret(
                             sent_filename=(args.txt_dir, txt_dir),
-                            model=bert_model,
+                            model=bert_model.to(device),
                             decoder=(
                                 bert_model.cls
                                 if args.objective == "mask"
@@ -356,17 +430,17 @@ def main():
                             ),
                             tokenizer=bert_tokenizer,
                             class_map=class_map,
-                            input_embedding=res["input_embedding"],
-                            output_embedding=res["output_embedding"],
+                            input_embedding=res["input_embedding"].to(device),
+                            output_embedding=res["output_embedding"].to(device),
                             mask_or_cls=args.objective,
                             iteration=res["iteration"],
                             eq_class_words_ids=eq_class_words_and_ids[txt_dir],
                             txt_out_dir=os.path.join(
                                 res_path, txt_dir, "interpretation"
                             ),
+                            min_cap=min_embeddings.to(device),
+                            max_cap=max_embeddings.to(device),
                             device=device,
-                            max_n_comb=args.max_combinations,
-                            top_k=args.top_k,
                         )
 
 

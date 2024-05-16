@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
+from torchvision import transforms
 from simec.logics import explore
 from models.vit import PatchDecoder
 from experiments_utils import (
@@ -59,27 +60,9 @@ def interpret(
     with torch.no_grad():
         pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(device)
 
-        print(
-            f"Min before cap: {np.around(torch.min(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax before cap: {np.around(torch.max(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-
         # cap input embeddings to bring them back to what the decoder knows
         input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
         input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
-
-        print(
-            f"\tMin after cap: {np.around(torch.min(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax after cap: {np.around(torch.max(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
 
         pred_capped = torch.argmax(
             model.classifier(model.encoder(input_embedding)[0][:, 0])
@@ -121,17 +104,9 @@ def interpret(
             modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
             if len(modified_image.size()) == 2:
                 modified_image = modified_image.unsqueeze(0)
-        print(
-            f"\tMin after decoder: {np.around(torch.min(modified_image).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax after decoder: {np.around(torch.max(modified_image).cpu().numpy(), 3)}",
-        )
         modified_image_pred = torch.argmax(model(modified_image.unsqueeze(0))[0])
         fname = os.path.join(
-            img_out_dir,
-            f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png",
+            img_out_dir, f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png"
         )
         _, ax = plt.subplots()
         ax.imshow(
@@ -194,7 +169,6 @@ def main():
     model = model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    # str_time = "20240513-155827"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -245,7 +219,7 @@ def main():
             save_each=args.save_each,
         )
 
-    print("Interpretation phase")
+    print("\tInterpretation phase")
 
     decoder = PatchDecoder(
         image_size=model.image_size,
