@@ -154,6 +154,7 @@ def interpret(
             os.makedirs(img_out_dir)
         plt.savefig(fname)
         plt.close()
+        return pred_capped, modified_image_pred
 
 
 def parse_args() -> argparse.Namespace:

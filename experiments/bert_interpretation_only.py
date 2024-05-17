@@ -12,6 +12,9 @@ from tqdm import tqdm
 from transformers import BertTokenizerFast, logging
 import torch
 from numpy import around
+import seaborn as sns
+from pylab import savefig
+import matplotlib.pyplot as plt
 from experiments_utils import (
     load_bert_model,
     deactivate_dropout_layers,
@@ -206,9 +209,59 @@ def interpret(
             str_preds_modified = tokenizer.convert_ids_to_tokens(
                 [torch.argmax(mlm_pred_modified[keep_constant_id], dim=-1)]
             )[0]
-            json_stats["mod-probas"] = str_preds_modified
+            json_stats["mod-probas"] = [
+                (tokenizer.convert_ids_to_tokens([v])[0], p.item())
+                for v, p in zip(
+                    mlm_pred_modified[keep_constant_id].topk(5).indices,
+                    mlm_pred_modified[keep_constant_id].topk(5).values,
+                )
+            ]
             modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
             json_stats["mod-sentence"] = modified_sentence
+
+            # now we try to remove equivalence classes tokens informations
+            # to see whether we can let the model decide more freely
+            mod_sentence = original_sentence_ids.clone().to(device)
+            mod_sentence[keep_constant_id] = torch.argmax(
+                mlm_pred_capped[keep_constant_id]
+            ).item()
+
+            original_embeddings = model.bert.embeddings(
+                input_ids=mod_sentence.unsqueeze(0)
+            ).to(device)
+            for idx, w in (
+                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
+            ):
+                if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                    capped_input_embedding[:, idx] = (
+                        capped_input_embedding[:, idx] - original_embeddings[:, idx]
+                    )
+            # and we measure probabilities
+            mlm_pred_capped_mod = decoder(capped_input_embedding)[0]
+            json_stats["cap-sentence-mod"] = " ".join(
+                tokenizer.convert_ids_to_tokens(
+                    torch.argmax(mlm_pred_capped_mod, dim=-1)
+                )
+            )
+            json_stats["cap-probas-mod"] = [
+                (tokenizer.convert_ids_to_tokens([v])[0], p.item())
+                for v, p in zip(
+                    mlm_pred_capped_mod[keep_constant_id].topk(5).indices,
+                    mlm_pred_capped_mod[keep_constant_id].topk(5).values,
+                )
+            ]
+            # register equivalence class words probabilities with and without cutting back
+            for idx, w in (
+                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
+            ):
+                if w not in ["[CLS]", "[MASK]", "[SEP]"]:
+                    json_stats[f"cap-probas-mod-{w}"] = [
+                        (tokenizer.convert_ids_to_tokens([v])[0], around(p.item(), 3))
+                        for v, p in zip(
+                            mlm_pred_capped_mod[idx].topk(5).indices,
+                            mlm_pred_capped_mod[idx].topk(5).values,
+                        )
+                    ]
 
         else:
             # register prediction without cut back in allowed range
@@ -233,7 +286,7 @@ def interpret(
             str_pred_capped = class_map[torch.argmax(cls_pred_capped).item()]
             json_stats["cap-probas"] = [
                 (class_map[v], p.item())
-                for v, p in enumerate(cls_pred[keep_constant_id])
+                for v, p in enumerate(cls_pred_capped[keep_constant_id])
             ]
             # register equivalence class words probabilities with and without cutting back
             for idx, w in (
@@ -257,6 +310,7 @@ def interpret(
                     modified_sentence_ids[idx] = torch.argmax(
                         mlm_pred_capped[idx]
                     ).item()
+
             # now we test whether the prediction has changed by processing the
             # sentence with alternative words taken from equivalence class.
             # This is done only on cut embeddings
@@ -272,6 +326,8 @@ def interpret(
             json_stats["mod-sentence"] = modified_sentence
 
     save_intepretation()
+
+    return str_pred, str_pred_capped
 
 
 def parse_args() -> argparse.Namespace:
@@ -374,6 +430,8 @@ def main():
 
     print("\tInterpretation phase")
 
+    predictions = {"pred": [], "it": [], "name": []}
+
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
             if os.path.isdir(os.path.join(res_path, txt_dir)):
@@ -391,7 +449,7 @@ def main():
                     max_embeddings = load_object(
                         os.path.join(res_path, "max_distribution.pkl")
                     )
-                    interpret(
+                    pred, decoded_pred = interpret(
                         sent_filename=(args.txt_dir, txt_dir),
                         model=bert_model.to(device),
                         decoder=(
@@ -411,6 +469,17 @@ def main():
                         max_cap=max_embeddings.to(device),
                         device=device,
                     )
+                    predictions["pred"].append(pred == decoded_pred)
+                    predictions["it"].append(res["iteration"])
+                    predictions["name"].append(txt_dir)
+    pl = sns.scatterplot(data=predictions, x="it", y="pred")
+    figure = pl.get_figure()
+    # Customize the y-axis to show only 0 and 1
+    plt.yticks([0, 1])
+    plt.ylim(-0.3, 1.3)
+    plt.grid(axis="x", which="major")
+    figure.savefig(os.path.join(res_path, "pred.png"), dpi=400)
+    plt.close()
 
 
 if __name__ == "__main__":
