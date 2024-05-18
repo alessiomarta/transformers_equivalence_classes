@@ -19,6 +19,7 @@ torch = "^2.3.0"
 torchvision = "^0.18.0"
 torchsummary = "^1.5.1"
 seaborn = "^0.13.2"
+pandas = "^2.2.2"
 
 [build-system]
 requires = ["poetry-core"]

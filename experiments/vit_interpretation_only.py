@@ -187,8 +187,6 @@ def main():
 
     print("Interpretation phase")
 
-    predictions = {"pred": [], "it": [], "name": []}
-
     decoder = PatchDecoder(
         image_size=model.image_size,
         patch_size=model.embedding.patch_size,
@@ -197,6 +195,7 @@ def main():
 
     for img_dir in os.listdir(res_path):
         if os.path.isdir(os.path.join(res_path, img_dir)):
+            predictions = {}
             for filename in tqdm(
                 os.listdir(os.path.join(res_path, img_dir)), desc=img_dir
             ):
@@ -223,17 +222,9 @@ def main():
                         max_cap=max_embeddings.to(device),
                         device=device,
                     )
-                predictions["pred"].append((pred == decoded_pred).item())
-                predictions["it"].append(res["iteration"])
-                predictions["name"].append(img_dir)
-    pl = sns.scatterplot(data=predictions, x="it", y="pred")
-    figure = pl.get_figure()
-    # Customize the y-axis to show only 0 and 1
-    plt.yticks([0, 1])
-    plt.ylim(-0.3, 1.3)
-    plt.grid(axis="x", which="major")
-    figure.savefig(os.path.join(res_path, "pred.png"), dpi=400)
-    plt.close()
+                predictions[res["iteration"]] = (pred == decoded_pred).item()
+            with open(os.path.join(res_path, img_dir, "pred-stats.json"), "w") as file:
+                json.dump(predictions, file)
 
 
 if __name__ == "__main__":

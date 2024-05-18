@@ -1,23 +1,35 @@
 import os
 import argparse
+from collections import defaultdict
+from operator import itemgetter
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
 import json
 from tqdm import tqdm
-import numpy as np
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json-dir", type=str, required=True)
+    parser.add_argument("--pretty-print", type=str, default="n", choices=["y", "n"])
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    pre_probas = []
-    cap_probas = []
-    post_probas = []
     pre_eq_class_wrds = []
     cap_eq_class_wrds = []
+    sns.set_theme(
+        rc={
+            "figure.figsize": (12, 6),
+        }
+    )
+    exp_name = args.json_dir.split(os.path.sep)[-1]
+    if args.pretty_print == "y":
+        exp_name = "-".join(
+            itemgetter(*[0, 1])(args.json_dir.split(os.path.sep)[-1].split("-"))
+        )
     for res in os.listdir(args.json_dir):
         if os.path.isdir(os.path.join(args.json_dir, res)):
             files = [
@@ -30,21 +42,19 @@ def main():
                 )
                 and filename.lower().endswith("-stats.json")
             ]
+            pred_p = {"Predicted token": [], "Iteration": [], "Prediction value": []}
+            eq_c_p = defaultdict(dict)
             for j_file in tqdm(files, desc=res):
                 stats = json.load(
                     open(
                         os.path.join(args.json_dir, res, "interpretation", j_file), "r"
                     )
                 )
-                pre_probas.append(
-                    sorted([el[1] for el in stats["pre-cap-probas"]], reverse=True)
-                )
-                cap_probas.append(
-                    sorted([el[1] for el in stats["cap-probas"]], reverse=True)
-                )
-                post_probas.append(
-                    sorted([el[1] for el in stats["mod-probas"]], reverse=True)
-                )
+                for el in stats["cap-probas"]:
+                    pred_p["Predicted token"].append(el[0])
+                    pred_p["Iteration"].append(int(j_file.split("-")[0]))
+                    pred_p["Prediction value"].append(el[1])
+
                 pre_eq_class_wrds_keys = [
                     k for k in stats.keys() if "pre-cap-probas-" in k
                 ]
@@ -55,52 +65,124 @@ def main():
                 cap_eq_class_wrds_keys = [
                     k
                     for k in stats.keys()
-                    if "cap-probas-" in k and "pre-cap-probas-" not in k
+                    if "cap-probas-" in k
+                    and "pre-cap-probas-" not in k
+                    and k != "cap-probas-mod"
                 ]
                 for k in cap_eq_class_wrds_keys:
+                    for el in stats[k]:
+                        try:
+                            eq_c_p[k.split("-")[-1]]["Predicted token"].append(el[0])
+                            eq_c_p[k.split("-")[-1]]["Iteration"].append(
+                                int(j_file.split("-")[0])
+                            )
+                            eq_c_p[k.split("-")[-1]]["Prediction value"].append(el[1])
+                        except KeyError:
+                            eq_c_p[k.split("-")[-1]] = {
+                                "Predicted token": [],
+                                "Iteration": [],
+                                "Prediction value": [],
+                            }
+                            eq_c_p[k.split("-")[-1]]["Predicted token"].append(el[0])
+                            eq_c_p[k.split("-")[-1]]["Iteration"].append(
+                                int(j_file.split("-")[0])
+                            )
+                            eq_c_p[k.split("-")[-1]]["Prediction value"].append(el[1])
                     cap_eq_class_wrds.append(
                         sorted([el[1] for el in stats[k]], reverse=True)
                     )
 
-    norm_pre_probas = (np.array(pre_probas) - np.min(np.array(pre_probas))) / (
-        np.max(np.array(pre_probas)) - np.min(np.array(pre_probas))
-    )
-    norm_cap_probas = (np.array(cap_probas) - np.min(np.array(cap_probas))) / (
-        np.max(np.array(cap_probas)) - np.min(np.array(cap_probas))
-    )
-    norm_post_probas = (np.array(post_probas) - np.min(np.array(post_probas))) / (
-        np.max(np.array(post_probas)) - np.min(np.array(post_probas))
-    )
+            df = pd.DataFrame.from_dict(pred_p)
+            top_sums = list(
+                df.groupby("Predicted token")
+                .sum("Prediction value")
+                .sort_values("Prediction value", ascending=False)[:5]
+                .index
+            )
+            top_means = list(
+                df.groupby("Predicted token")
+                .mean("Prediction value")
+                .sort_values("Prediction value", ascending=False)[:5]
+                .index
+            )
+            top_preds = set(
+                df.loc[df.groupby("Iteration")["Prediction value"].idxmax()][
+                    "Predicted token"
+                ].values
+            )
+            df = df[
+                df["Predicted token"].isin(top_preds.union(top_means).union(top_sums))
+            ].sort_values(by="Iteration")
 
-    norm_pre_eq_class_wrds = (
-        np.array(pre_eq_class_wrds) - np.min(np.array(pre_eq_class_wrds))
-    ) / (np.max(np.array(pre_eq_class_wrds)) - np.min(np.array(pre_eq_class_wrds)))
-    norm_cap_eq_class_wrds = (
-        np.array(cap_eq_class_wrds) - np.min(np.array(cap_eq_class_wrds))
-    ) / (np.max(np.array(cap_eq_class_wrds)) - np.min(np.array(cap_eq_class_wrds)))
+            pl = sns.lineplot(
+                data=df,
+                x="Iteration",
+                y="Prediction value",
+                hue="Predicted token",
+                style="Predicted token",
+                markers=True,
+                dashes=False,
+            )
+            pl.set(
+                title=f"Predictions values, for each iteration\nExperiment {exp_name} on {res}"
+            )
+            box = pl.get_position()
+            pl.set_position(
+                [box.x0, box.y0 + box.height * 0.15, box.width, box.height * 0.85]
+            )
+            sns.move_legend(pl, "lower center", bbox_to_anchor=(0.5, -0.3), ncol=7)
+            figure = pl.get_figure()
+            figure.savefig(os.path.join(args.json_dir, res, "probas.png"), dpi=400)
+            plt.close()
 
-    diff_pre_probas = np.abs(norm_pre_probas[:-1] - norm_pre_probas[1:])
-    diff_cap_probas = np.abs(norm_cap_probas[:-1] - norm_cap_probas[1:])
-    diff_post_probas = np.abs(norm_post_probas[:-1] - norm_post_probas[1:])
-    diff_pre_eq_class_wrds = np.abs(
-        norm_pre_eq_class_wrds[:-1] - norm_pre_eq_class_wrds[1:]
-    )
-    diff_cap_eq_class_wrds = np.abs(
-        norm_cap_eq_class_wrds[:-1] - norm_cap_eq_class_wrds[1:]
-    )
+            # probabilities plots
+            for k in eq_c_p:
+                df = pd.DataFrame.from_dict(eq_c_p[k])
+                top_sums = list(
+                    df.groupby("Predicted token")
+                    .sum("Prediction value")
+                    .sort_values("Prediction value", ascending=False)[:5]
+                    .index
+                )
+                top_means = list(
+                    df.groupby("Predicted token")
+                    .mean("Prediction value")
+                    .sort_values("Prediction value", ascending=False)[:5]
+                    .index
+                )
+                top_preds = set(
+                    df.loc[df.groupby("Iteration")["Prediction value"].idxmax()][
+                        "Predicted token"
+                    ].values
+                )
+                df = df[
+                    df["Predicted token"].isin(
+                        top_preds.union(top_means).union(top_sums)
+                    )
+                ].sort_values(by="Iteration")
 
-    pre_means = np.array(diff_pre_probas).mean(0)
-    cap_means = np.array(diff_cap_probas).mean(0)
-    post_means = np.array(diff_post_probas).mean(0)
-    pre_eq_class_wrds_means = np.array(diff_pre_eq_class_wrds).mean(0)
-    cap_eq_class_wrds_means = np.array(diff_cap_eq_class_wrds).mean(0)
-
-    print("Differences in probabilities (first - second, second - third...)")
-    print(f"Pre cut:\t{pre_means}")
-    print(f"Cut:\t\t{cap_means}")
-    print(f"Post cut:\t{post_means}")
-    print(f"Eq class pre:\t{pre_eq_class_wrds_means}")
-    print(f"Eq class cut:\t{cap_eq_class_wrds_means}")
+                pl = sns.lineplot(
+                    data=df,
+                    x="Iteration",
+                    y="Prediction value",
+                    hue="Predicted token",
+                    style="Predicted token",
+                    markers=True,
+                    dashes=False,
+                )
+                pl.set(
+                    title=f"Top predicted tokens and their respective prediction values, for each iteration\nExperiment {exp_name} on {res}"
+                )
+                box = pl.get_position()
+                pl.set_position(
+                    [box.x0, box.y0 + box.height * 0.15, box.width, box.height * 0.85]
+                )
+                sns.move_legend(pl, "lower center", bbox_to_anchor=(0.5, -0.3), ncol=7)
+                figure = pl.get_figure()
+                figure.savefig(
+                    os.path.join(args.json_dir, res, f"{k}-probas.png"), dpi=400
+                )
+                plt.close()
 
 
 if __name__ == "__main__":

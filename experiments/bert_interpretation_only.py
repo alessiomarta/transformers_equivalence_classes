@@ -12,9 +12,6 @@ from tqdm import tqdm
 from transformers import BertTokenizerFast, logging
 import torch
 from numpy import around
-import seaborn as sns
-from pylab import savefig
-import matplotlib.pyplot as plt
 from experiments_utils import (
     load_bert_model,
     deactivate_dropout_layers,
@@ -219,50 +216,6 @@ def interpret(
             modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
             json_stats["mod-sentence"] = modified_sentence
 
-            # now we try to remove equivalence classes tokens informations
-            # to see whether we can let the model decide more freely
-            mod_sentence = original_sentence_ids.clone().to(device)
-            mod_sentence[keep_constant_id] = torch.argmax(
-                mlm_pred_capped[keep_constant_id]
-            ).item()
-
-            original_embeddings = model.bert.embeddings(
-                input_ids=mod_sentence.unsqueeze(0)
-            ).to(device)
-            for idx, w in (
-                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
-            ):
-                if w not in ["[CLS]", "[MASK]", "[SEP]"]:
-                    capped_input_embedding[:, idx] = (
-                        capped_input_embedding[:, idx] - original_embeddings[:, idx]
-                    )
-            # and we measure probabilities
-            mlm_pred_capped_mod = decoder(capped_input_embedding)[0]
-            json_stats["cap-sentence-mod"] = " ".join(
-                tokenizer.convert_ids_to_tokens(
-                    torch.argmax(mlm_pred_capped_mod, dim=-1)
-                )
-            )
-            json_stats["cap-probas-mod"] = [
-                (tokenizer.convert_ids_to_tokens([v])[0], p.item())
-                for v, p in zip(
-                    mlm_pred_capped_mod[keep_constant_id].topk(5).indices,
-                    mlm_pred_capped_mod[keep_constant_id].topk(5).values,
-                )
-            ]
-            # register equivalence class words probabilities with and without cutting back
-            for idx, w in (
-                eq_class if len(eq_class) > 0 else enumerate(original_sentence)
-            ):
-                if w not in ["[CLS]", "[MASK]", "[SEP]"]:
-                    json_stats[f"cap-probas-mod-{w}"] = [
-                        (tokenizer.convert_ids_to_tokens([v])[0], around(p.item(), 3))
-                        for v, p in zip(
-                            mlm_pred_capped_mod[idx].topk(5).indices,
-                            mlm_pred_capped_mod[idx].topk(5).values,
-                        )
-                    ]
-
         else:
             # register prediction without cut back in allowed range
             mlm_pred = decoder(input_embedding)[0]
@@ -327,7 +280,7 @@ def interpret(
 
     save_intepretation()
 
-    return str_pred, str_pred_capped
+    return str_pred_capped, str_preds_modified
 
 
 def parse_args() -> argparse.Namespace:
@@ -430,8 +383,6 @@ def main():
 
     print("\tInterpretation phase")
 
-    predictions = {"pred": [], "it": [], "name": []}
-
     with torch.no_grad():
         for txt_dir in os.listdir(res_path):
             if os.path.isdir(os.path.join(res_path, txt_dir)):
@@ -441,6 +392,7 @@ def main():
                     if os.path.isfile(os.path.join(res_path, txt_dir, filename))
                     and filename.lower().endswith(".pkl")
                 ]
+                predictions = {}
                 for filename in tqdm(dirs, desc=f"Reading {txt_dir}"):
                     res = load_object(os.path.join(res_path, txt_dir, filename))
                     min_embeddings = load_object(
@@ -469,17 +421,11 @@ def main():
                         max_cap=max_embeddings.to(device),
                         device=device,
                     )
-                    predictions["pred"].append(pred == decoded_pred)
-                    predictions["it"].append(res["iteration"])
-                    predictions["name"].append(txt_dir)
-    pl = sns.scatterplot(data=predictions, x="it", y="pred")
-    figure = pl.get_figure()
-    # Customize the y-axis to show only 0 and 1
-    plt.yticks([0, 1])
-    plt.ylim(-0.3, 1.3)
-    plt.grid(axis="x", which="major")
-    figure.savefig(os.path.join(res_path, "pred.png"), dpi=400)
-    plt.close()
+                    predictions[res["iteration"]] = pred == decoded_pred
+                with open(
+                    os.path.join(res_path, txt_dir, "pred-stats.json"), "w"
+                ) as file:
+                    json.dump(predictions, file)
 
 
 if __name__ == "__main__":
