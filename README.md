@@ -1,8 +1,16 @@
 # SIMEC and SIMEXP experiments
 
+To reproduce the experiments, first create an environment and install the required packages (requires Python >=3.12):
+```
+python3 -m venv venv
+source venv/bin/activate
+python3 -m pip install setuptools
+python3 -m pip install -r requirements.txt
+```
+
 Until the `simec` package is not published on PyPI, install it in editable mode:
 ```
-pip install -e simec
+python3 -m pip install -e simec
 ```
 
 ### Experiments on input space exploration
