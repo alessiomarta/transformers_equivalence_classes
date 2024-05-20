@@ -215,6 +215,7 @@ def interpret(
             ]
             modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
             json_stats["mod-sentence"] = modified_sentence
+            json_stats["original-sentence"] = original_sentence
 
         else:
             # register prediction without cut back in allowed range
@@ -277,6 +278,7 @@ def interpret(
             ]
             modified_sentence = tokenizer.convert_ids_to_tokens(modified_sentence_ids)
             json_stats["mod-sentence"] = modified_sentence
+            json_stats["original-sentence"] = original_sentence
 
     save_intepretation()
 
