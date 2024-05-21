@@ -164,6 +164,7 @@ data/
 mnist_imgs/
 mlm_data/
 hate_explain/
+saved_models/
 
 # Result directory
 res/

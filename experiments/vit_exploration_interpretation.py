@@ -180,68 +180,77 @@ def main():
     )
     deactivate_dropout_layers(model)
     model = model.to(device)
+    for res_dir in os.listdirs(args.pkl_dir):
+        if res_dir.startswith("sime") and "vit" in res_dir and os.path.exists(
+            os.path.join(args.pkl_dir, res_dir, "0.pkl")
+        ):
+            res_path = os.path.join(args.pkl_dir, res_dir)
+            print(res_dir)
+            print("\tMeasuring input distribution...")
+            patches_embeddings = []
+            for idx, img in enumerate(images):
+                input_patches = model.patcher(img.unsqueeze(0))
+                patches_embeddings.append(
+                    (input_patches, model.embedding(input_patches))
+                )
 
-    res_path = args.pkl_dir
+            embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
+            min_embeddings = torch.min(embeddings, dim=-1).values
+            max_embeddings = torch.max(embeddings, dim=-1).values
 
-    print("\tMeasuring input distribution...")
-    patches_embeddings = []
-    for idx, img in enumerate(images):
-        input_patches = model.patcher(img.unsqueeze(0))
-        patches_embeddings.append((input_patches, model.embedding(input_patches)))
+            save_object(
+                obj=min_embeddings.cpu(),
+                filename=os.path.join(res_path, "min_distribution.pkl"),
+            )
+            save_object(
+                obj=max_embeddings.cpu(),
+                filename=os.path.join(res_path, "max_distribution.pkl"),
+            )
 
-    embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-    min_embeddings = torch.min(embeddings, dim=-1).values
-    max_embeddings = torch.max(embeddings, dim=-1).values
+            print("Interpretation phase")
 
-    save_object(
-        obj=min_embeddings.cpu(),
-        filename=os.path.join(res_path, "min_distribution.pkl"),
-    )
-    save_object(
-        obj=max_embeddings.cpu(),
-        filename=os.path.join(res_path, "max_distribution.pkl"),
-    )
+            decoder = PatchDecoder(
+                image_size=model.image_size,
+                patch_size=model.embedding.patch_size,
+                model_embedding_layer=model.embedding,
+            ).to(device)
 
-    print("Interpretation phase")
-
-    decoder = PatchDecoder(
-        image_size=model.image_size,
-        patch_size=model.embedding.patch_size,
-        model_embedding_layer=model.embedding,
-    ).to(device)
-
-    for img_dir in os.listdir(res_path):
-        if os.path.isdir(os.path.join(res_path, img_dir)):
-            predictions = {}
-            for filename in tqdm(
-                os.listdir(os.path.join(res_path, img_dir)), desc=img_dir
-            ):
-                if os.path.isfile(
-                    os.path.join(res_path, img_dir, filename)
-                ) and filename.lower().endswith(".pkl"):
-                    res = load_object(os.path.join(res_path, img_dir, filename))
-                    min_embeddings = load_object(
-                        os.path.join(res_path, "min_distribution.pkl")
-                    )
-                    max_embeddings = load_object(
-                        os.path.join(res_path, "max_distribution.pkl")
-                    )
-                    pred, decoded_pred = interpret(
-                        img_filename=(args.img_dir, img_dir),
-                        model=model.to(device),
-                        decoder=decoder,
-                        input_embedding=res["input_embedding"].to(device),
-                        output_embedding=res["output_embedding"].to(device),
-                        iteration=res["iteration"],
-                        eq_class_patch_ids=eq_class_patch[img_dir],
-                        img_out_dir=os.path.join(res_path, img_dir, "interpretation"),
-                        min_cap=min_embeddings.to(device),
-                        max_cap=max_embeddings.to(device),
-                        device=device,
-                    )
-                predictions[res["iteration"]] = (pred == decoded_pred).item()
-            with open(os.path.join(res_path, img_dir, "pred-stats.json"), "w") as file:
-                json.dump(predictions, file)
+            for img_dir in os.listdir(res_path):
+                if os.path.isdir(os.path.join(res_path, img_dir)):
+                    predictions = {}
+                    for filename in tqdm(
+                        os.listdir(os.path.join(res_path, img_dir)), desc=img_dir
+                    ):
+                        if os.path.isfile(
+                            os.path.join(res_path, img_dir, filename)
+                        ) and filename.lower().endswith(".pkl"):
+                            res = load_object(os.path.join(res_path, img_dir, filename))
+                            min_embeddings = load_object(
+                                os.path.join(res_path, "min_distribution.pkl")
+                            )
+                            max_embeddings = load_object(
+                                os.path.join(res_path, "max_distribution.pkl")
+                            )
+                            pred, decoded_pred = interpret(
+                                img_filename=(args.img_dir, img_dir),
+                                model=model.to(device),
+                                decoder=decoder,
+                                input_embedding=res["input_embedding"].to(device),
+                                output_embedding=res["output_embedding"].to(device),
+                                iteration=res["iteration"],
+                                eq_class_patch_ids=eq_class_patch[img_dir],
+                                img_out_dir=os.path.join(
+                                    res_path, img_dir, "interpretation"
+                                ),
+                                min_cap=min_embeddings.to(device),
+                                max_cap=max_embeddings.to(device),
+                                device=device,
+                            )
+                        predictions[res["iteration"]] = (pred == decoded_pred).item()
+                    with open(
+                        os.path.join(res_path, img_dir, "pred-stats.json"), "w"
+                    ) as file:
+                        json.dump(predictions, file)
 
 
 if __name__ == "__main__":

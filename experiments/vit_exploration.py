@@ -26,137 +26,6 @@ from experiments_utils import (
 )
 
 
-def interpret(
-    img_filename: tuple,
-    model: torch.nn.Module,
-    decoder: PatchDecoder,
-    input_embedding: torch.Tensor,
-    output_embedding: torch.Tensor,
-    iteration: int,
-    eq_class_patch_ids: list,
-    device: torch.device,
-    min_cap: torch.Tensor,
-    max_cap: torch.Tensor,
-    img_out_dir: str = ".",
-) -> None:
-    """
-    Interpret and visualize the effects of specific patches on the model's predictions.
-
-    Args:
-        model: The ViT model used for predictions.
-        decoder: A decoder to reconstruct images from their embeddings.
-        input_embedding: The embedding of the input image.
-        output_embedding: The output embedding from the model after processing the input.
-        iteration: The iteration number of the exploration process.
-        eq_class_patch_ids: List of indices for patches to explore.
-        img_out_dir: The directory to save the output images.
-
-    Returns:
-        None. Saves the interpreted image with marked patches to the specified directory.
-    """
-    original_image, _ = load_raw_image(*img_filename)
-    model.eval()
-    with torch.no_grad():
-        pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(device)
-
-        print(
-            f"Min before cap: {np.around(torch.min(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax before cap: {np.around(torch.max(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-
-        # cap input embeddings to bring them back to what the decoder knows
-        input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
-        input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
-
-        print(
-            f"\tMin after cap: {np.around(torch.min(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax after cap: {np.around(torch.max(input_embedding).cpu().numpy(), 3)}",
-            end="",
-        )
-
-        pred_capped = torch.argmax(
-            model.classifier(model.encoder(input_embedding)[0][:, 0])
-        ).to(device)
-
-        # select those patches to replace with modified ones
-        patch_idx = []
-        if eq_class_patch_ids:
-            for p in eq_class_patch_ids:
-                patch_idx.append(
-                    (
-                        np.array(
-                            np.unravel_index(
-                                p - 1,
-                                (
-                                    28 // model.embedding.patch_size,
-                                    28 // model.embedding.patch_size,
-                                ),
-                            )
-                        )
-                        * model.embedding.patch_size
-                    )[::-1]
-                )
-            mod_pixels = [[], []]
-            for p in patch_idx:
-                for i in range(model.embedding.patch_size):
-                    for j in range(model.embedding.patch_size):
-                        mod_pixels[0].append(p[0] + i)
-                        mod_pixels[1].append(p[1] + j)
-            # embeddings->image
-            decoded_image = decoder(input_embedding.to(device)).squeeze()
-
-            # replace patches in original image with those in modified image
-            modified_image = original_image.clone().to(device)
-            modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
-                mod_pixels[1], mod_pixels[0]
-            ]
-        else:
-            modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
-            if len(modified_image.size()) == 2:
-                modified_image = modified_image.unsqueeze(0)
-        print(
-            f"\tMin after decoder: {np.around(torch.min(modified_image).cpu().numpy(), 3)}",
-            end="",
-        )
-        print(
-            f"\tMax after decoder: {np.around(torch.max(modified_image).cpu().numpy(), 3)}",
-        )
-        modified_image_pred = torch.argmax(model(modified_image.unsqueeze(0))[0])
-        fname = os.path.join(
-            img_out_dir,
-            f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png",
-        )
-        _, ax = plt.subplots()
-        ax.imshow(
-            modified_image.squeeze().cpu().numpy(),
-            cmap="gray",
-            norm=Normalize(vmin=-1, vmax=1),
-        )
-        for p in patch_idx:
-            ax.add_patch(
-                Rectangle(
-                    tuple(p + np.array([-0.5, -0.5])),
-                    model.embedding.patch_size,
-                    model.embedding.patch_size,
-                    linewidth=1,
-                    edgecolor="r",
-                    facecolor="none",
-                )
-            )
-        if not os.path.exists(img_out_dir):
-            os.makedirs(img_out_dir)
-        plt.savefig(fname)
-        plt.close()
-        return pred_capped, modified_image_pred
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
@@ -195,7 +64,6 @@ def main():
     model = model.to(device)
 
     str_time = time.strftime("%Y%m%d-%H%M%S")
-    # str_time = "20240513-155827"
     res_path = os.path.join(
         args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
     )
@@ -205,24 +73,10 @@ def main():
     with open(os.path.join(res_path, "params.json"), "w") as file:
         json.dump(vars(args), file)
 
-    print("\tMeasuring input distribution...")
     patches_embeddings = []
     for idx, img in enumerate(images):
         input_patches = model.patcher(img.unsqueeze(0))
         patches_embeddings.append((input_patches, model.embedding(input_patches)))
-
-    embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-    min_embeddings = torch.min(embeddings, dim=-1).values
-    max_embeddings = torch.max(embeddings, dim=-1).values
-
-    save_object(
-        obj=min_embeddings.cpu(),
-        filename=os.path.join(res_path, "min_distribution.pkl"),
-    )
-    save_object(
-        obj=max_embeddings.cpu(),
-        filename=os.path.join(res_path, "max_distribution.pkl"),
-    )
 
     for idx, img in enumerate(images):
 
@@ -245,42 +99,6 @@ def main():
             keep_timing=True,
             save_each=args.save_each,
         )
-
-    print("Interpretation phase")
-
-    decoder = PatchDecoder(
-        image_size=model.image_size,
-        patch_size=model.embedding.patch_size,
-        model_embedding_layer=model.embedding,
-    ).to(device)
-
-    with torch.no_grad():
-        for img_dir in os.listdir(res_path):
-            if os.path.isdir(os.path.join(res_path, img_dir)):
-                for filename in os.listdir(os.path.join(res_path, img_dir)):
-                    if os.path.isfile(
-                        os.path.join(res_path, img_dir, filename)
-                    ) and filename.lower().endswith(".pkl"):
-                        res = load_object(os.path.join(res_path, img_dir, filename))
-                        min_embeddings = load_object(
-                            os.path.join(res_path, "min_distribution.pkl")
-                        )
-                        max_embeddings = load_object(
-                            os.path.join(res_path, "max_distribution.pkl")
-                        )
-                        interpret(
-                            img_filename=(args.img_dir, img_dir),
-                            model=model.to(device),
-                            decoder=decoder,
-                            input_embedding=res["input_embedding"].to(device),
-                            output_embedding=res["output_embedding"].to(device),
-                            iteration=res["iteration"],
-                            eq_class_patch_ids=eq_class_patch[img_dir],
-                            img_out_dir=os.path.join(res_path, img_dir, "images"),
-                            min_cap=min_embeddings.to(device),
-                            max_cap=max_embeddings.to(device),
-                            device=device,
-                        )
 
 
 if __name__ == "__main__":

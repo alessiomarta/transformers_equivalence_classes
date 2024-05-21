@@ -1,0 +1,2 @@
+cd analysis
+python3 pred_analysis.py --res-dir ../res/input-space-exploration --cls-dir ../hate_explain/generated --mlm-dir ../mlm_data/generated --img-dir ../mnist_imgs/class/4 --vit-model-path ../saved_models/vit/model_20.pt --vit-config-path ../saved_models/vit/config.json --plots-out-dir ../res/plot_analysis
