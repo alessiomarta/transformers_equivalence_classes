@@ -56,6 +56,10 @@ def interpret(
     """
     original_image, _ = load_raw_image(*img_filename)
     model.eval()
+    json_stats = {}
+    json_stats["original_image_pred"] = torch.argmax(
+        model(original_image.to(device).unsqueeze(0))[0]
+    ).item()
 
     pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(device)
 
@@ -104,7 +108,13 @@ def interpret(
         modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
         if len(modified_image.size()) == 2:
             modified_image = modified_image.unsqueeze(0)
-    modified_image_pred = torch.argmax(model(modified_image.unsqueeze(0))[0])
+    modified_image_pred = model(modified_image.unsqueeze(0))[0].squeeze()
+    json_stats["modified_image_pred"] = torch.argmax(modified_image_pred).item()
+    json_stats["modified_image_pred_proba"] = torch.max(modified_image_pred).item()
+    json_stats["modified_original_pred_proba"] = modified_image_pred[
+        json_stats["original_image_pred"]
+    ].item()
+    modified_image_pred = torch.argmax(modified_image_pred)
     fname = os.path.join(
         img_out_dir,
         f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png",
@@ -130,6 +140,13 @@ def interpret(
         os.makedirs(img_out_dir)
     plt.savefig(fname)
     plt.close()
+
+    json_fname = os.path.join(
+        img_out_dir,
+        f"{iteration}-stats.json",
+    )
+    with open(json_fname, "w") as file:
+        json.dump(json_stats, file)
     return pred_capped, modified_image_pred
 
 
