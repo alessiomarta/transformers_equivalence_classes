@@ -94,6 +94,11 @@ def load_raw_image(img_dir: str, image_filename: str) -> Tuple[torch.Tensor, Lis
         if image.size != (28, 28):
             image = image.resize((28, 28))
         return transform(image), image_filename.split(".")[0]
+    if os.path.isfile(os.path.join(img_dir, image_filename + ".png")):
+        image = Image.open(os.path.join(img_dir, image_filename + ".png")).convert("L")
+        if image.size != (28, 28):
+            image = image.resize((28, 28))
+        return transform(image), image_filename.split(".")[0]
 
 
 def load_raw_sents(txt_dir: str) -> Tuple[List[str], List[str]]:
