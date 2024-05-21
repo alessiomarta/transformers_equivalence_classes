@@ -234,7 +234,7 @@ def main():
                         output_embedding=res["output_embedding"].to(device),
                         iteration=res["iteration"],
                         eq_class_patch_ids=eq_class_patch[img_dir],
-                        img_out_dir=os.path.join(res_path, img_dir, "images"),
+                        img_out_dir=os.path.join(res_path, img_dir, "interpretation"),
                         min_cap=min_embeddings.to(device),
                         max_cap=max_embeddings.to(device),
                         device=device,
