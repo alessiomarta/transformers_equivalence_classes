@@ -29,12 +29,12 @@ bash vit_baseline.sh
 ```
 
 ##### BERT
-To reproduce the experiments about **Input space exploration**
+To reproduce the experiments about **Input space exploration** paragraph in Section 4, including time needed to run 1000 iterations of SiMEC/SiMExp, run:
 
 ```
 bash bert_exploration.sh
 ```
-
+Results can be found in `res/input-space-exploration`.
 
 ### Experiments on feature importance
 
@@ -56,7 +56,7 @@ To reproduce Figure 1 and Figure 2 in the **Feature Importance** paragraph in Se
 ```
 bash feature_importance_interpretation_example.sh
 ```
-Results can be found in `res/examples/feature-importance`
+Results can be found in `res/examples/feature-importance`.
 
 ### ViT exploration example
 
