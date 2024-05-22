@@ -22,6 +22,7 @@ To reproduce the experiments about **Input space exploration** paragraph in Sect
 ```
 bash vit_exploration.sh
 ```
+This scripts also run the interpretation over the exploration results. Results can be found in `res/input-space-exploration`.
 
 To run the perturbation-based baseline, run:
 ```
@@ -34,9 +35,7 @@ To reproduce the experiments about **Input space exploration** paragraph in Sect
 ```
 bash bert_exploration.sh
 ```
-This scripts also run the interpretation over the exploration results.
-
-Results can be found in `res/input-space-exploration`.
+This scripts also run the interpretation over the exploration results. Results can be found in `res/input-space-exploration`.
 
 ### Experiments on feature importance
 
