@@ -8,7 +8,7 @@ python bert_exploration.py --objective mask --exp-type same --exp-name simec-ber
 python bert_exploration.py --objective mask --exp-type diff --exp-name simexp-bert-msk --model-name bert-base-uncased --out-dir ../res/ --txt-dir ../mlm_data/generated --iter 1000 --save-each 10
 
 echo "BERT MSK Interpretation ..."
-python bert_exploration_interpretation  --objective mask --pkl-dir ../res/input-space-exploration --txt-dir ../mlm_data/generated --model-name bert-base-uncased
+python bert_exploration_interpretation.py  --objective mask --pkl-dir ../res/input-space-exploration --txt-dir ../mlm_data/generated --model-name bert-base-uncased
 
 echo "BERT CLS Interpretation ..."
-python bert_exploration_interpretation  --objective cls --pkl-dir ../res/input-space-exploration --txt-dir ../hate_explain/generated --model-name ctoraman/hate-speech-bert
+python bert_exploration_interpretation.py  --objective cls --pkl-dir ../res/input-space-exploration --txt-dir ../hate_explain/generated --model-name ctoraman/hate-speech-bert

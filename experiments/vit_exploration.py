@@ -9,20 +9,12 @@ import argparse
 import os
 import json
 import time
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-from matplotlib.patches import Rectangle
 import torch
 from simec.logics import explore
-from models.vit import PatchDecoder
 from experiments_utils import (
     load_raw_images,
-    load_raw_image,
     deactivate_dropout_layers,
     load_model,
-    load_object,
-    save_object,
 )
 
 

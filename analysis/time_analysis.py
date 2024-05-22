@@ -17,7 +17,7 @@ def main():
     times = []
 
     for experiment in os.listdir(args.dir):
-        if os.path.isdir(os.path.join(args.dir, experiment)) and "bert" in experiment:
+        if os.path.isdir(os.path.join(args.dir, experiment)):
             for folder in os.listdir(os.path.join(args.dir, experiment)):
                 filepath = os.path.join(
                     args.dir, experiment, folder, f"{args.iter}.pkl"

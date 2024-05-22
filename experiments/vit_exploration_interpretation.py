@@ -180,10 +180,8 @@ def main():
     )
     deactivate_dropout_layers(model)
     model = model.to(device)
-    for res_dir in os.listdirs(args.pkl_dir):
-        if res_dir.startswith("sime") and "vit" in res_dir and os.path.exists(
-            os.path.join(args.pkl_dir, res_dir, "0.pkl")
-        ):
+    for res_dir in os.listdir(args.pkl_dir):
+        if res_dir.startswith("sime") and "vit" in res_dir:
             res_path = os.path.join(args.pkl_dir, res_dir)
             print(res_dir)
             print("\tMeasuring input distribution...")
