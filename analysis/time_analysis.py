@@ -12,23 +12,22 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", required=True, type=str)
     parser.add_argument("--iter", required=True, type=int)
-    parser.add_argument("--exp", required=True, type=int)
+    parser.add_argument("--exp", required=True, type=str)
     args = parser.parse_args()
 
     times = []
 
     for experiment in os.listdir(args.dir):
-        if os.path.isdir(os.path.join(args.dir, experiment)):
+        if os.path.isdir(os.path.join(args.dir, experiment)) and args.exp in experiment:
             for folder in os.listdir(os.path.join(args.dir, experiment)):
-                if args.exp in folder:
-                    filepath = os.path.join(
-                        args.dir, experiment, folder, f"{args.iter}.pkl"
-                    )
-                    if os.path.exists(filepath):
-                        with open(filepath, "rb") as outp:
-                            d = pickle.load(outp)
-                        print(filepath)
-                        times.append(d["time"])
+                filepath = os.path.join(
+                    args.dir, experiment, folder, f"{args.iter}.pkl"
+                )
+                if os.path.exists(filepath):
+                    with open(filepath, "rb") as outp:
+                        d = pickle.load(outp)
+                    print(filepath)
+                    times.append(d["time"])
 
     print(np.mean(times), np.std(times))
 

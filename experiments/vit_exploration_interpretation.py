@@ -168,10 +168,23 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
 
-    images, names = load_raw_images(args.img_dir)
-    images = images.to(device)
-
-    eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
+    sub_dirs_exists = any(
+        [os.path.isdir(os.path.join(args.img_dir, d)) for d in os.listdir(args.img_dir)]
+    )
+    if sub_dirs_exists:
+        all_images, all_names, all_eq_class_patch = {}, {}, {}
+        for subdir in os.listdir(args.img_dir):
+            if os.path.isdir(os.path.join(args.img_dir, subdir)):
+                im, n = load_raw_images(os.path.join(args.img_dir, subdir))
+                all_images[subdir] = im.to(device)
+                all_names[subdir] = n
+                all_eq_class_patch[subdir] = json.load(
+                    open(os.path.join(args.img_dir, subdir, "config.json"), "r")
+                )
+    else:
+        images, names = load_raw_images(args.img_dir)
+        images = images.to(device)
+        eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
 
     model, _ = load_model(
         model_path=args.model_path,
@@ -184,6 +197,19 @@ def main():
         if res_dir.startswith("sime") and "vit" in res_dir:
             res_path = os.path.join(args.pkl_dir, res_dir)
             print(res_dir)
+            if sub_dirs_exists:
+                res_img_names = [
+                    d
+                    for d in os.listdir(res_path)
+                    if os.path.isdir(os.path.join(res_path, d))
+                ]
+                img_name = [
+                    k for k, v in all_names.items() if set(v) == set(res_img_names)
+                ][0]
+                images = all_images[img_name]
+                names = all_names[img_name]
+                eq_class_patch = all_eq_class_patch[img_name]
+
             print("\tMeasuring input distribution...")
             patches_embeddings = []
             for idx, img in enumerate(images):
@@ -230,7 +256,11 @@ def main():
                                 os.path.join(res_path, "max_distribution.pkl")
                             )
                             pred, decoded_pred = interpret(
-                                img_filename=(args.img_dir, img_dir),
+                                img_filename=(
+                                    (args.img_dir, img_dir)
+                                    if not sub_dirs_exists
+                                    else (os.path.join(args.img_dir, img_name), img_dir)
+                                ),
                                 model=model.to(device),
                                 decoder=decoder,
                                 input_embedding=res["input_embedding"].to(device),

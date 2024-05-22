@@ -1,0 +1,42 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "/Users/lizzy/research/input-space-inspection/transformers_equivalence_classes/experiments",
+            "console": "integratedTerminal",
+            "args": [
+                "--pkl-dir",
+                "../res/input-space-exploration",
+                "--img-dir",
+                "../mnist_imgs/class",
+                "--model-path",
+                "../saved_models/vit/model_20.pt",
+                "--config-path",
+                "../saved_models/vit/config.json"
+            ]
+        },
+        {
+            "name": "time",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "/Users/lizzy/research/input-space-inspection/transformers_equivalence_classes/analysis",
+            "console": "integratedTerminal",
+            "args": [
+                "--dir",
+                "../res/input-space-exploration",
+                "--iter",
+                "1000",
+                "--exp",
+                "cls",
+            ]
+        }
+    ]
+}
