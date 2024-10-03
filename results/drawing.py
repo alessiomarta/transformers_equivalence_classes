@@ -40,3 +40,8 @@ if __name__ == "__main__":
         f.add_legend()
 
     f.savefig(f"../figures/{filename}-specific.pdf")
+
+    h= sns.FacetGrid(data = results, col = "algorithm", sharey=True)
+    h.map(sns.lineplot, "iteration", y, estimator = "var", errorbar = ("ci", 0))
+    h.add_legend()
+    h.savefig(f"../figures/{filename}-variance.pdf")
