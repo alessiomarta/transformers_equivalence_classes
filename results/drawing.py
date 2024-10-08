@@ -25,7 +25,7 @@ if __name__ == "__main__":
 
     g = sns.FacetGrid(data = results, col = "algorithm", sharey=True)
     y = "modified-pred-proba" if "explore-token" in results.columns else "modified-original-proba"
-    g.map(sns.lineplot, "iteration", y, errorbar = ("ci", 95))
+    g.map(sns.lineplot, "iteration", y, errorbar = ("ci", 95), weights = results["alternative-token-proba"])
     g.add_legend()
     g.savefig(f"../figures/{filename}-general.pdf")
 
@@ -45,3 +45,9 @@ if __name__ == "__main__":
     h.map(sns.lineplot, "iteration", y, estimator = "var", errorbar = ("ci", 0))
     h.add_legend()
     h.savefig(f"../figures/{filename}-variance.pdf")
+
+    results['same-label'] = results.apply(lambda row: int(row['original-pred'] == row['alternative-pred']), axis = 1)
+    l = sns.FacetGrid(data = results, col = "algorithm", sharey = True)
+    l.map(sns.lineplot, "iteration", "same-label", errorbar = ("ci", 0))
+    l.add_legend()
+    l.savefig(f"../figures/{filename}-frequency.pdf")
