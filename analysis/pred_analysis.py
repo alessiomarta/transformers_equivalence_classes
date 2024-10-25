@@ -61,7 +61,12 @@ def load_raw_sents(txt_dir: str):
     return txts, txts_names
 
 
-def collect_data_and_preds(res_dir, objective, original_preds=None, pipe=None):
+def collect_data_and_preds(
+    res_dir,
+    objective,
+    original_preds=None,
+    pipe=None,
+):
     if pipe:
         data = {
             "file-name": [],
@@ -198,6 +203,7 @@ def collect_data_and_preds(res_dir, objective, original_preds=None, pipe=None):
                         )
                         data["algorithm"].append(exp_dir.split("-")[0])
                         data["iteration"].append(int(j_file.split("-")[0]))
+
     return data
 
 
@@ -251,6 +257,7 @@ def main():
     # experiments
     print("ViT experiment...")
     data_vit = pd.DataFrame.from_dict(collect_data_and_preds(res_path, "vit"))
+    data_vit.to_csv(os.path.join(args.plots_out_dir, "res-proba-vit.csv"))
     data_vit = data_vit.loc[data_vit["file-name"] != "img_34"]
     data_vit["same-eq-class"] = (
         data_vit["original-pred"] == data_vit["alternative-pred"]
@@ -295,6 +302,7 @@ def main():
     data_msk = pd.DataFrame.from_dict(
         collect_data_and_preds(res_path, "msk", msk_preds, msk_pipe)
     )
+    data_msk.to_csv(os.path.join(args.plots_out_dir, "res-proba-msk.csv"))
     data_msk["same-eq-class"] = (
         data_msk["original-pred"] == data_msk["alternative-pred"]
     )
@@ -339,6 +347,7 @@ def main():
     data_cls = pd.DataFrame.from_dict(
         collect_data_and_preds(res_path, "cls", cls_preds, cls_pipe)
     )
+    data_cls.to_csv(os.path.join(args.plots_out_dir, "res-proba-cls.csv"))
     data_cls = data_cls.loc[data_cls["file-name"] != "sentence_2"]
     data_cls["same-eq-class"] = (
         data_cls["original-pred"] == data_cls["alternative-pred"]
