@@ -33,10 +33,9 @@ def interpret(
     mask_or_cls: str,
     iteration: int,
     device: torch.device,
-    min_cap: torch.Tensor,
-    max_cap: torch.Tensor,
     class_map: dict = None,
     txt_out_dir: str = ".",
+    capping: str = "",
 ) -> None:
     """
     Interpret the results of sentence exploration and generate a report.
@@ -112,6 +111,8 @@ def interpret(
         ) as file:
             json.dump(json_stats, file)
 
+    str_pred_capped = "exploration-capping"  # just for return values purposes
+
     txts_dir, sent_name = sent_filename
     eq_class, keep_constant = (
         eq_class_words_ids["eq_class_w"],
@@ -135,14 +136,17 @@ def interpret(
 
     model.eval()
     with torch.no_grad():
-        # cap input embeddings to bring them back to what the decoder knows
-        capped_input_embedding = input_embedding.clone().to(device)
-        capped_input_embedding[capped_input_embedding < min_cap] = min_cap.repeat(
-            (1, capped_input_embedding.size(1), 1)
-        )[capped_input_embedding < min_cap]
-        capped_input_embedding[capped_input_embedding > max_cap] = max_cap.repeat(
-            (1, capped_input_embedding.size(1), 1)
-        )[capped_input_embedding > max_cap]
+        if capping:
+            min_cap = load_object(os.path.join(capping, "min_distribution.pkl"))
+            max_cap = load_object(os.path.join(capping, "max_distribution.pkl"))
+            # cap input embeddings to bring them back to what the decoder knows
+            capped_input_embedding = input_embedding.clone().to(device)
+            capped_input_embedding[capped_input_embedding < min_cap] = min_cap.repeat(
+                (1, capped_input_embedding.size(1), 1)
+            )[capped_input_embedding < min_cap]
+            capped_input_embedding[capped_input_embedding > max_cap] = max_cap.repeat(
+                (1, capped_input_embedding.size(1), 1)
+            )[capped_input_embedding > max_cap]
 
         if mask_or_cls == "mask":
             # register prediction without cut back in allowed range
@@ -160,43 +164,54 @@ def interpret(
                     mlm_pred[keep_constant_id].topk(5).values,
                 )
             ]
-            # register prediction with cut back in allowed range
-            mlm_pred_capped = decoder(model.bert.encoder(capped_input_embedding)[0])[0]
-            json_stats["cap-sentence"] = " ".join(
-                tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred_capped, dim=-1))
-            )
-            str_pred_capped = tokenizer.convert_ids_to_tokens(
-                [torch.argmax(mlm_pred_capped[keep_constant_id]).item()]
-            )[0]
-            json_stats["cap-probas"] = [
-                (tokenizer.convert_ids_to_tokens([v])[0], p.item())
-                for v, p in zip(
-                    mlm_pred_capped[keep_constant_id].topk(5).indices,
-                    mlm_pred_capped[keep_constant_id].topk(5).values,
+            if capping:
+                # register prediction with cut back in allowed range
+                mlm_pred_capped = decoder(
+                    model.bert.encoder(capped_input_embedding)[0]
+                )[0]
+                json_stats["cap-sentence"] = " ".join(
+                    tokenizer.convert_ids_to_tokens(
+                        torch.argmax(mlm_pred_capped, dim=-1)
+                    )
                 )
-            ]
+                str_pred_capped = tokenizer.convert_ids_to_tokens(
+                    [torch.argmax(mlm_pred_capped[keep_constant_id]).item()]
+                )[0]
+                json_stats["cap-probas"] = [
+                    (tokenizer.convert_ids_to_tokens([v])[0], p.item())
+                    for v, p in zip(
+                        mlm_pred_capped[keep_constant_id].topk(5).indices,
+                        mlm_pred_capped[keep_constant_id].topk(5).values,
+                    )
+                ]
             # register equivalence class words probabilities with and without cutting back
             for idx, w in (
                 eq_class if len(eq_class) > 0 else enumerate(original_sentence)
             ):
                 if w not in ["[CLS]", "[MASK]", "[SEP]"]:
-                    json_stats[f"pre-cap-probas-{w}"] = [
-                        (tokenizer.convert_ids_to_tokens([v])[0], p.item())
-                        for v, p in zip(
-                            mlm_pred[idx].topk(5).indices,
-                            mlm_pred[idx].topk(5).values,
-                        )
-                    ]
-                    json_stats[f"cap-probas-{w}"] = [
-                        (tokenizer.convert_ids_to_tokens([v])[0], p.item())
-                        for v, p in zip(
-                            mlm_pred_capped[idx].topk(5).indices,
-                            mlm_pred_capped[idx].topk(5).values,
-                        )
-                    ]
-                    modified_sentence_ids[idx] = torch.argmax(
-                        mlm_pred_capped[idx]
-                    ).item()
+
+                    if capping:
+                        json_stats[f"cap-probas-{w}"] = [
+                            (tokenizer.convert_ids_to_tokens([v])[0], p.item())
+                            for v, p in zip(
+                                mlm_pred_capped[idx].topk(5).indices,
+                                mlm_pred_capped[idx].topk(5).values,
+                            )
+                        ]
+                        modified_sentence_ids[idx] = torch.argmax(
+                            mlm_pred_capped[idx]
+                        ).item()
+                    else:
+                        json_stats[f"pre-cap-probas-{w}"] = [
+                            (tokenizer.convert_ids_to_tokens([v])[0], p.item())
+                            for v, p in zip(
+                                mlm_pred[idx].topk(5).indices,
+                                mlm_pred[idx].topk(5).values,
+                            )
+                        ]
+                        modified_sentence_ids[idx] = torch.argmax(
+                            mlm_pred_capped[idx]
+                        ).item()
             # now we test whether the prediction has changed by processing the
             # sentence with alternative words taken from equivalence class.
             # This is done only on cut embeddings
@@ -229,19 +244,22 @@ def interpret(
                 (class_map[v], p.item())
                 for v, p in enumerate(cls_pred[keep_constant_id])
             ]
-            # register prediction with cut back in allowed range
-            mlm_pred_capped = decoder(capped_input_embedding)[0]
-            json_stats["cap-sentence"] = " ".join(
-                tokenizer.convert_ids_to_tokens(torch.argmax(mlm_pred_capped, dim=-1))
-            )
-            cls_pred_capped = model.classifier(
-                model.bert.pooler(model.bert.encoder(capped_input_embedding)[0])
-            )
-            str_pred_capped = class_map[torch.argmax(cls_pred_capped).item()]
-            json_stats["cap-probas"] = [
-                (class_map[v], p.item())
-                for v, p in enumerate(cls_pred_capped[keep_constant_id])
-            ]
+            if capping:
+                # register prediction with cut back in allowed range
+                mlm_pred_capped = decoder(capped_input_embedding)[0]
+                json_stats["cap-sentence"] = " ".join(
+                    tokenizer.convert_ids_to_tokens(
+                        torch.argmax(mlm_pred_capped, dim=-1)
+                    )
+                )
+                cls_pred_capped = model.classifier(
+                    model.bert.pooler(model.bert.encoder(capped_input_embedding)[0])
+                )
+                str_pred_capped = class_map[torch.argmax(cls_pred_capped).item()]
+                json_stats["cap-probas"] = [
+                    (class_map[v], p.item())
+                    for v, p in enumerate(cls_pred_capped[keep_constant_id])
+                ]
             # register equivalence class words probabilities with and without cutting back
             for idx, w in (
                 eq_class if len(eq_class) > 0 else enumerate(original_sentence)
@@ -254,16 +272,32 @@ def interpret(
                             mlm_pred[idx].topk(5).values,
                         )
                     ]
-                    json_stats[f"cap-probas-{w}"] = [
-                        (tokenizer.convert_ids_to_tokens([v])[0], around(p.item(), 3))
-                        for v, p in zip(
-                            mlm_pred_capped[idx].topk(5).indices,
-                            mlm_pred_capped[idx].topk(5).values,
-                        )
-                    ]
-                    modified_sentence_ids[idx] = torch.argmax(
-                        mlm_pred_capped[idx]
-                    ).item()
+                    if capping:
+                        json_stats[f"cap-probas-{w}"] = [
+                            (
+                                tokenizer.convert_ids_to_tokens([v])[0],
+                                around(p.item(), 3),
+                            )
+                            for v, p in zip(
+                                mlm_pred_capped[idx].topk(5).indices,
+                                mlm_pred_capped[idx].topk(5).values,
+                            )
+                        ]
+                        modified_sentence_ids[idx] = torch.argmax(
+                            mlm_pred_capped[idx]
+                        ).item()
+                    else:
+                        json_stats[f"pre-cap-probas-{w}"] = [
+                            (
+                                tokenizer.convert_ids_to_tokens([v])[0],
+                                around(p.item(), 3),
+                            )
+                            for v, p in zip(
+                                mlm_pred[idx].topk(5).indices,
+                                mlm_pred[idx].topk(5).values,
+                            )
+                        ]
+                        modified_sentence_ids[idx] = torch.argmax(mlm_pred[idx]).item()
 
             # now we test whether the prediction has changed by processing the
             # sentence with alternative words taken from equivalence class.
@@ -282,7 +316,9 @@ def interpret(
 
     save_intepretation()
 
-    return str_pred_capped, str_preds_modified
+    if capping:
+        return str_pred_capped, str_preds_modified
+    return str_pred, str_preds_modified
 
 
 def parse_args() -> argparse.Namespace:
@@ -292,6 +328,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--txt-dir", type=str, required=True)
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--cap-ex", action="store_true")
 
     args = parser.parse_args()
     if args.device is None:
@@ -323,8 +360,6 @@ def main():
             print(res_dir)
 
             print("\tPreprocessing text...")
-            print("\tMeasuring input distribution...")
-            sentence_embeddings = []
             for idx, txt in enumerate(txts):
                 tokenized_input = bert_tokenizer(
                     txt,
@@ -371,24 +406,6 @@ def main():
                         key=lambda x: x[0],
                     ),
                 }
-                sentence_embeddings.append(
-                    bert_model.bert.embeddings(**tokenized_input).to(device)
-                )
-
-            embeddings = torch.concat(
-                [s.clone().permute(0, 2, 1) for s in sentence_embeddings], dim=-1
-            )
-            min_embeddings = torch.min(embeddings, dim=-1).values
-            max_embeddings = torch.max(embeddings, dim=-1).values
-
-            save_object(
-                obj=min_embeddings.cpu(),
-                filename=os.path.join(res_path, "min_distribution.pkl"),
-            )
-            save_object(
-                obj=max_embeddings.cpu(),
-                filename=os.path.join(res_path, "max_distribution.pkl"),
-            )
 
             print("\tInterpretation phase")
 
@@ -404,12 +421,6 @@ def main():
                         predictions = {}
                         for filename in tqdm(dirs, desc=f"Reading {txt_dir}"):
                             res = load_object(os.path.join(res_path, txt_dir, filename))
-                            min_embeddings = load_object(
-                                os.path.join(res_path, "min_distribution.pkl")
-                            )
-                            max_embeddings = load_object(
-                                os.path.join(res_path, "max_distribution.pkl")
-                            )
                             pred, decoded_pred = interpret(
                                 sent_filename=(args.txt_dir, txt_dir),
                                 model=bert_model.to(device),
@@ -428,8 +439,7 @@ def main():
                                 txt_out_dir=os.path.join(
                                     res_path, txt_dir, "interpretation"
                                 ),
-                                min_cap=min_embeddings.to(device),
-                                max_cap=max_embeddings.to(device),
+                                capping=res_path if args.cap_ex else "",
                                 device=device,
                             )
                             predictions[res["iteration"]] = pred == decoded_pred

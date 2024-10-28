@@ -35,9 +35,8 @@ def interpret(
     iteration: int,
     eq_class_patch_ids: list,
     device: torch.device,
-    min_cap: torch.Tensor,
-    max_cap: torch.Tensor,
     img_out_dir: str = ".",
+    capping: str = "",
 ) -> None:
     """
     Interpret and visualize the effects of specific patches on the model's predictions.
@@ -62,15 +61,20 @@ def interpret(
     ).item()
 
     pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(device)
+    pred_capped = "exploration-capping"  # just for return values purposes
 
     input_embedding = input_embedding.detach()
-    # cap input embeddings to bring them back to what the decoder knows
-    input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
-    input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
 
-    pred_capped = torch.argmax(
-        model.classifier(model.encoder(input_embedding)[0][:, 0])
-    ).to(device)
+    if capping:
+        min_cap = load_object(os.path.join(capping, "min_distribution.pkl"))
+        max_cap = load_object(os.path.join(capping, "max_distribution.pkl"))
+        # cap input embeddings to bring them back to what the decoder knows
+        input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
+        input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
+
+        pred_capped = torch.argmax(
+            model.classifier(model.encoder(input_embedding)[0][:, 0])
+        ).to(device)
 
     # select those patches to replace with modified ones
     patch_idx = []
@@ -147,7 +151,9 @@ def interpret(
     )
     with open(json_fname, "w") as file:
         json.dump(json_stats, file)
-    return pred_capped, modified_image_pred
+    if capping:
+        return pred_capped, modified_image_pred
+    return pred, modified_image_pred
 
 
 def parse_args() -> argparse.Namespace:
@@ -157,6 +163,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--cap-ex", action="store_true")
 
     args = parser.parse_args()
     if args.device is None:
@@ -182,7 +189,7 @@ def main():
                     open(os.path.join(args.img_dir, subdir, "config.json"), "r")
                 )
     else:
-        images, names = load_raw_images(args.img_dir)
+        images, _ = load_raw_images(args.img_dir)
         images = images.to(device)
         eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
 
@@ -207,29 +214,14 @@ def main():
                     k for k, v in all_names.items() if set(v) == set(res_img_names)
                 ][0]
                 images = all_images[img_name]
-                names = all_names[img_name]
                 eq_class_patch = all_eq_class_patch[img_name]
 
-            print("\tMeasuring input distribution...")
             patches_embeddings = []
-            for idx, img in enumerate(images):
+            for img in images:
                 input_patches = model.patcher(img.unsqueeze(0))
                 patches_embeddings.append(
                     (input_patches, model.embedding(input_patches))
                 )
-
-            embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-            min_embeddings = torch.min(embeddings, dim=-1).values
-            max_embeddings = torch.max(embeddings, dim=-1).values
-
-            save_object(
-                obj=min_embeddings.cpu(),
-                filename=os.path.join(res_path, "min_distribution.pkl"),
-            )
-            save_object(
-                obj=max_embeddings.cpu(),
-                filename=os.path.join(res_path, "max_distribution.pkl"),
-            )
 
             print("Interpretation phase")
 
@@ -249,12 +241,6 @@ def main():
                             os.path.join(res_path, img_dir, filename)
                         ) and filename.lower().endswith(".pkl"):
                             res = load_object(os.path.join(res_path, img_dir, filename))
-                            min_embeddings = load_object(
-                                os.path.join(res_path, "min_distribution.pkl")
-                            )
-                            max_embeddings = load_object(
-                                os.path.join(res_path, "max_distribution.pkl")
-                            )
                             pred, decoded_pred = interpret(
                                 img_filename=(
                                     (args.img_dir, img_dir)
@@ -270,11 +256,12 @@ def main():
                                 img_out_dir=os.path.join(
                                     res_path, img_dir, "interpretation"
                                 ),
-                                min_cap=min_embeddings.to(device),
-                                max_cap=max_embeddings.to(device),
+                                capping=res_path if args.cap_ex else "",
                                 device=device,
                             )
-                        predictions[res["iteration"]] = (pred == decoded_pred).item()
+                            predictions[res["iteration"]] = (
+                                pred == decoded_pred
+                            ).item()
                     with open(
                         os.path.join(res_path, img_dir, "pred-stats.json"), "w"
                     ) as file:

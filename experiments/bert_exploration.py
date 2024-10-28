@@ -37,6 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-name", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--cap-ex", action="store_true")
 
     args = parser.parse_args()
     if args.device is None:
@@ -120,12 +121,26 @@ def main():
             bert_model.bert.embeddings(**tokenized_input).to(device)
         )
 
+    print("\tMeasuring and saving input distribution for capping...")
+    embeddings = torch.concat(
+        [s.clone().permute(0, 2, 1) for s in sentence_embeddings], dim=-1
+    )
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
+
+    save_object(
+        obj=min_embeddings.cpu(),
+        filename=os.path.join(res_path, "min_distribution.pkl"),
+    )
+    save_object(
+        obj=max_embeddings.cpu(),
+        filename=os.path.join(res_path, "max_distribution.pkl"),
+    )
+
+    print("\tExploration phase")
+
     for idx, txt in enumerate(txts):
-
         print(f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}")
-
-        print("\tExploration phase")
-
         explore(
             same_equivalence_class=args.exp_type == "same",
             input_embedding=sentence_embeddings[idx],
@@ -141,6 +156,7 @@ def main():
             n_iterations=args.iter,
             out_dir=os.path.join(res_path, names[idx]),
             save_each=args.save_each,
+            capping=res_path if args.cap_ex else "",
         )
 
 

@@ -15,6 +15,7 @@ from experiments_utils import (
     load_raw_images,
     deactivate_dropout_layers,
     load_model,
+    save_object,
 )
 
 
@@ -31,6 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config-path", type=str, required=True)
     parser.add_argument("--out-dir", type=str, required=True)
     parser.add_argument("--device", type=str)
+    parser.add_argument("--cap-ex", action="store_true")
 
     args = parser.parse_args()
     if args.device is None:
@@ -70,12 +72,24 @@ def main():
         input_patches = model.patcher(img.unsqueeze(0))
         patches_embeddings.append((input_patches, model.embedding(input_patches)))
 
-    for idx, img in enumerate(images):
+    print("\tMeasuring and saving input distribution for capping...")
+    embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
 
+    save_object(
+        obj=min_embeddings.cpu(),
+        filename=os.path.join(res_path, "min_distribution.pkl"),
+    )
+    save_object(
+        obj=max_embeddings.cpu(),
+        filename=os.path.join(res_path, "max_distribution.pkl"),
+    )
+
+    print("\tExploration phase")
+    for idx, img in enumerate(images):
         print("Image:", idx)
         input_patches, input_embedding = patches_embeddings[idx]
-
-        print("\tExploration phase")
         explore(
             same_equivalence_class=args.exp_type == "same",
             input_embedding=input_embedding,
@@ -90,6 +104,7 @@ def main():
             out_dir=os.path.join(res_path, names[idx]),
             keep_timing=True,
             save_each=args.save_each,
+            capping=res_path if args.cap_ex else "",
         )
 
 

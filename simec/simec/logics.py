@@ -167,6 +167,7 @@ def explore(
     keep_timing: bool = True,
     save_each: int = 10,
     out_dir: str = ".",
+    capping: str = "",
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -208,10 +209,17 @@ def explore(
         )
     ).to(device)
 
+    if capping:
+        with open(os.path.join(capping, "min_distribution.pkl"), "rb") as outp:
+            min_embeddings = pickle.load(outp)
+        with open(os.path.join(capping, "max_distribution.pkl"), "rb") as outp:
+            max_embeddings = pickle.load(outp)
+
     # Keep track of the length of the polygonal
     distance = torch.zeros(
         input_emb.size(1) if not eq_class_emb_ids else len(eq_class_emb_ids)
     ).to(device)
+
     if keep_timing:
         times = defaultdict(float)
         times["n_iterations"] = n_iterations
@@ -268,6 +276,23 @@ def explore(
             else:
                 input_emb[0] = input_emb[0] + eigenvecs * delta
             distance += eigenvals * delta
+
+        # cap embedding, if specified
+        if capping:
+            if input_emb.size() == min_embeddings.size():
+                input_emb[input_emb < min_embeddings] = min_embeddings[
+                    input_emb < min_embeddings
+                ]
+                input_emb[input_emb > max_embeddings] = max_embeddings[
+                    input_emb > max_embeddings
+                ]
+            else:
+                input_emb[input_emb < min_embeddings] = min_embeddings.repeat(
+                    (1, input_emb.size(1), 1)
+                )[input_emb < min_embeddings]
+                input_emb[input_emb > max_embeddings] = max_embeddings.repeat(
+                    (1, input_emb.size(1), 1)
+                )[input_emb > max_embeddings]
 
         # Prepare for next iteration
         input_emb = input_emb.to(device).requires_grad_(True)
