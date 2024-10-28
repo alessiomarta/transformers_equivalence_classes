@@ -137,8 +137,12 @@ def interpret(
     model.eval()
     with torch.no_grad():
         if capping:
-            min_cap = load_object(os.path.join(capping, "min_distribution.pkl"))
-            max_cap = load_object(os.path.join(capping, "max_distribution.pkl"))
+            min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(
+                device
+            )
+            max_cap = load_object(os.path.join(capping, "max_distribution.pkl")).to(
+                device
+            )
             # cap input embeddings to bring them back to what the decoder knows
             capped_input_embedding = input_embedding.clone().to(device)
             capped_input_embedding[capped_input_embedding < min_cap] = min_cap.repeat(

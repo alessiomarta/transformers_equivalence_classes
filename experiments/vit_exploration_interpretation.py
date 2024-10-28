@@ -66,8 +66,8 @@ def interpret(
     input_embedding = input_embedding.detach()
 
     if capping:
-        min_cap = load_object(os.path.join(capping, "min_distribution.pkl"))
-        max_cap = load_object(os.path.join(capping, "max_distribution.pkl"))
+        min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(device)
+        max_cap = load_object(os.path.join(capping, "max_distribution.pkl")).to(device)
         # cap input embeddings to bring them back to what the decoder knows
         input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
         input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
