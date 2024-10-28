@@ -174,3 +174,5 @@ res/
 
 #DS store
 .DS_Store
+
+.vscode
