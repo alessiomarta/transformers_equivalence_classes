@@ -6,7 +6,9 @@ import torch
 import numpy as np
 import cv2
 import argparse
-from experiments_utils import *
+import sys
+sys.path.append("../")
+from experiments.experiments_utils import *
 
 
 def parse_args():
@@ -43,7 +45,7 @@ def apply_self_attention_rules(R_ss, cam_ss):
     return R_ss_addition
 
 def generate_relevance(model, input, index=None):
-    output = model(input)[0]
+    output = model(input, save_attn_gradients = True)[0]
     if index == None:
         index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
@@ -99,8 +101,7 @@ def main():
         pred = model(img.unsqueeze(0))[0].flatten().cpu().detach().numpy().argmax()
 
         transformer_attribution = generate_relevance(model, img.unsqueeze(0), index=pred).detach()
-        dim = int(np.sqrt(transformer_attribution.shape[0]))
-        transformer_attribution = transformer_attribution.reshape((dim, dim))
+        transformer_attribution = transformer_attribution.reshape(img.shape[:2])
 
         fig = plt.figure(figsize=(8, 4))
         gs = GridSpec(1, 3, width_ratios=[1, 1, 0.05])

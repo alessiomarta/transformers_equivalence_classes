@@ -1,6 +1,8 @@
 import time, json, os, argparse
 import torch
+import numpy as np
 from torchvision import datasets, transforms
+from tqdm.auto import trange
 from vit import ViTForClassification
 
 
@@ -13,9 +15,6 @@ CONFIG = {
     "hidden_dropout_prob": 0.01,
     "attention_probs_dropout_prob": 0.01,
     "initializer_range": 0.02,
-    "image_size": 28,
-    "num_classes": 10,
-    "num_channels": 1,
     "qkv_bias": True,
 }
 
@@ -87,7 +86,7 @@ class Trainer:
         # Keep track of the losses and accuracies
         train_losses, test_losses, accuracies = [], [], []
         # Train the model
-        for i in range(epochs):
+        for i in trange(epochs):
             if measure_time:
                 start_time = time.time()
             train_loss = self.train_epoch(trainloader)
@@ -128,18 +127,19 @@ class Trainer:
         total_loss = 0
         for batch in trainloader:
             # Move the batch to the device
-            batch = [t.to(self.device) for t in batch]
             images, labels = batch
+            images = images.to(self.device) # SHAPE = batch_size, num_channels, height, width
+            labels = labels.to(self.device)
             # Zero the gradients
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none = True)
             # Calculate the loss
             loss = self.loss_fn(self.model(images)[0], labels)
             # Backpropagate the loss
             loss.backward()
             # Update the model's parameters
             self.optimizer.step()
-            total_loss += loss.item() * len(images)
-        return total_loss / len(trainloader.dataset)
+            total_loss += loss.item() * len(images) / len(trainloader.dataset)
+        return total_loss
 
     @torch.no_grad()
     def evaluate(self, testloader):
@@ -149,8 +149,9 @@ class Trainer:
         with torch.no_grad():
             for batch in testloader:
                 # Move the batch to the device
-                batch = [t.to(self.device) for t in batch]
                 images, labels = batch
+                images = images.to(self.device)
+                labels = labels.to(self.device)
 
                 # Get predictions
                 logits, _ = self.model(images)
@@ -172,14 +173,16 @@ def prepare_data(
     num_workers=2,
     train_sample_size=None,
     test_sample_size=None,
-    data_dir="../../mnist_data",
+    dataset="mnist",
+    device="cpu"
 ):
-    mean, std = (0.5,), (0.5,)
+    data_dir =f"../../{dataset.lower()}_data"
+
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean, std)]
+        [transforms.ToTensor()]
     )
 
-    trainset = datasets.MNIST(
+    trainset = getattr(datasets, dataset.upper())(
         root=data_dir,
         download=True,
         train=True,
@@ -192,15 +195,22 @@ def prepare_data(
         trainset = torch.utils.data.Subset(trainset, indices)
 
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+        trainset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
     )
 
-    testset = datasets.MNIST(
+    testset = getattr(datasets, dataset.upper()) (
         root=data_dir,
         download=True,
         train=False,
         transform=transform,
     )
+
+    global num_channels
+    global num_classes
+    global image_size
+    num_channels = testset.data.shape[-1] if testset.data.ndim == 4 else 1
+    num_classes = len(testset.classes)
+    image_size = testset.data.shape[1]
 
     if test_sample_size is not None:
         # Randomly sample a subset of the test set
@@ -208,10 +218,10 @@ def prepare_data(
         testset = torch.utils.data.Subset(testset, indices)
 
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
     )
 
-    classes = tuple(range(10))
+    classes = tuple(range(num_classes))
 
     return trainloader, testloader, classes
 
@@ -223,13 +233,17 @@ def main(args, model_path=None):
     lr = args["lr"]
     device = args["device"]
     save_model_every_n_epochs = args["save_model_every"]
+
     # Load the MNIST dataset
     print("Preparing data ...")
     trainloader, testloader, _ = prepare_data(
-        batch_size=batch_size, data_dir=args["datadir"]
+        batch_size=batch_size, dataset=args["datadir"], device = device
     )
     # Create the model, optimizer, loss function and trainer
     print("Creating the model, optimizer, loss function and trainer ...")
+    CONFIG['num_classes'] = num_classes
+    CONFIG['num_channels'] = num_channels
+    CONFIG['image_size'] = image_size
     model = ViTForClassification(CONFIG)
     if model_path is not None:
         checkpoint = torch.load(model_path)
