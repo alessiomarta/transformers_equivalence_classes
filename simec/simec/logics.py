@@ -211,9 +211,9 @@ def explore(
 
     if capping:
         with open(os.path.join(capping, "min_distribution.pkl"), "rb") as outp:
-            min_embeddings = pickle.load(outp)
+            min_embeddings = pickle.load(outp).to(device)
         with open(os.path.join(capping, "max_distribution.pkl"), "rb") as outp:
-            max_embeddings = pickle.load(outp)
+            max_embeddings = pickle.load(outp).to(device)
 
     # Keep track of the length of the polygonal
     distance = torch.zeros(
