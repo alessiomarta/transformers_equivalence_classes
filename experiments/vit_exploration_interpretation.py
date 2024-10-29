@@ -58,9 +58,11 @@ def interpret(
     json_stats = {}
     json_stats["original_image_pred"] = torch.argmax(
         model(original_image.to(device).unsqueeze(0))[0]
-    ).item()
+    ).item()  # prediction from original image
 
-    pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(device)
+    pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(
+        device
+    )  # prediction from modified embedding at a certain iteration
     pred_capped = "exploration-capping"  # just for return values purposes
 
     input_embedding = input_embedding.detach()
@@ -74,7 +76,9 @@ def interpret(
 
         pred_capped = torch.argmax(
             model.classifier(model.encoder(input_embedding)[0][:, 0])
-        ).to(device)
+        ).to(
+            device
+        )  # prediction from modified embedding at a certain iteration, when exploring phase does not perform capping at each iteration
 
     # select those patches to replace with modified ones
     patch_idx = []
@@ -100,6 +104,7 @@ def interpret(
                 for j in range(model.embedding.patch_size):
                     mod_pixels[0].append(p[0] + i)
                     mod_pixels[1].append(p[1] + j)
+
         # embeddings->image
         decoded_image = decoder(input_embedding.to(device)).squeeze()
 
@@ -112,12 +117,14 @@ def interpret(
         modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
         if len(modified_image.size()) == 2:
             modified_image = modified_image.unsqueeze(0)
-    modified_image_pred = model(modified_image.unsqueeze(0))[0].squeeze()
+    modified_image_pred = model(modified_image.unsqueeze(0))[
+        0
+    ].squeeze()  # prediction from translating embeddings back to image, and processing that image
     json_stats["modified_image_pred"] = torch.argmax(modified_image_pred).item()
     json_stats["modified_image_pred_proba"] = torch.max(modified_image_pred).item()
     json_stats["modified_original_pred_proba"] = modified_image_pred[
         json_stats["original_image_pred"]
-    ].item()
+    ].item()  # this is to compare probabilities in case the prediction has changed
     modified_image_pred = torch.argmax(modified_image_pred)
     fname = os.path.join(
         img_out_dir,
