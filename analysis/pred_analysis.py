@@ -12,6 +12,12 @@ from models.vit import ViTForClassification
 import torch
 
 
+def load_object(filename: str):
+    with open(filename, "rb") as outp:
+        obj = pickle.load(outp)
+    return obj
+
+
 def load_config(config_path: str) -> dict:
     with open(config_path, "r") as f:
         config = json.load(f)
@@ -109,17 +115,13 @@ def collect_data_and_preds(
                     if os.path.isfile(
                         os.path.join(res_dir, exp_dir, res, "interpretation", filename)
                     )
-                    and filename.lower().endswith("-stats.json")
+                    and filename.lower().endswith("-stats.pkl")
                 ]
                 for j_file in tqdm(files, desc=res):
-                    stats = json.load(
-                        open(
-                            os.path.join(
-                                res_dir, exp_dir, res, "interpretation", j_file
-                            ),
-                            "r",
-                        )
+                    stats = load_object(
+                        os.path.join(res_dir, exp_dir, res, "interpretation", j_file)
                     )
+
                     if pipe:
                         eq_class_wrds_keys = [
                             k
