@@ -56,17 +56,23 @@ def interpret(
     original_image, _ = load_raw_image(*img_filename)
     model.eval()
     json_stats = {}
+    original_image_pred = model(original_image.to(device).unsqueeze(0))[0]
+    json_stats["original_image_pred_proba"] = (
+        original_image_pred  # prediction probabilities from original image
+    ).cpu()
     json_stats["original_image_pred"] = torch.argmax(
-        model(original_image.to(device).unsqueeze(0))[0]
+        original_image_pred
     ).item()  # prediction from original image
 
-    pred = torch.argmax(model.classifier(output_embedding[:, 0])).to(
-        device
+    pred_proba = model.classifier(
+        output_embedding[:, 0]
     )  # prediction from modified embedding at a certain iteration
+    pred = torch.argmax(pred_proba).item()
+    json_stats["embedding_pred_proba"] = pred_proba.cpu()
+    json_stats["embedding_pred"] = pred
+
     pred_capped = "exploration-capping"  # just for return values purposes
-
     input_embedding = input_embedding.detach()
-
     if capping:
         min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(device)
         max_cap = load_object(os.path.join(capping, "max_distribution.pkl")).to(device)
@@ -74,11 +80,17 @@ def interpret(
         input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
         input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
 
-        pred_capped = torch.argmax(
-            model.classifier(model.encoder(input_embedding)[0][:, 0])
-        ).to(
-            device
+        pred_capped_proba = model.classifier(
+            model.encoder(input_embedding)[0][:, 0]
         )  # prediction from modified embedding at a certain iteration, when exploring phase does not perform capping at each iteration
+        pred_capped = torch.argmax(pred_capped_proba).item()
+        json_stats["capped_embedding_pred_proba"] = pred_capped_proba.cpu()
+        json_stats["capped_embedding_pred"] = pred_capped
+    else:
+        json_stats["capped_embedding_pred_proba"] = (
+            None  # this means that the capping has been performed at exploration time
+        )
+        json_stats["capped_embedding_pred"] = None
 
     # select those patches to replace with modified ones
     patch_idx = []
@@ -117,15 +129,19 @@ def interpret(
         modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
         if len(modified_image.size()) == 2:
             modified_image = modified_image.unsqueeze(0)
-    modified_image_pred = model(modified_image.unsqueeze(0))[
+    modified_image_pred_proba = model(modified_image.unsqueeze(0))[
         0
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
-    json_stats["modified_image_pred"] = torch.argmax(modified_image_pred).item()
-    json_stats["modified_image_pred_proba"] = torch.max(modified_image_pred).item()
-    json_stats["modified_original_pred_proba"] = modified_image_pred[
+    modified_image_pred = torch.argmax(modified_image_pred_proba).item()
+    json_stats["modified_image_pred"] = modified_image_pred
+    json_stats["modified_image_pred_probas"] = modified_image_pred_proba.cpu()
+    json_stats["modified_image_pred_proba"] = torch.max(
+        modified_image_pred_proba
+    ).item()  # for now I am keeping this to avoid other analysis scripts to stop working
+    json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
         json_stats["original_image_pred"]
     ].item()  # this is to compare probabilities in case the prediction has changed
-    modified_image_pred = torch.argmax(modified_image_pred)
+
     fname = os.path.join(
         img_out_dir,
         f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png",
@@ -154,10 +170,9 @@ def interpret(
 
     json_fname = os.path.join(
         img_out_dir,
-        f"{iteration}-stats.json",
+        f"{iteration}-stats.pkl",
     )
-    with open(json_fname, "w") as file:
-        json.dump(json_stats, file)
+    save_object(json_stats, json_fname)
     if capping:
         return pred_capped, modified_image_pred
     return pred, modified_image_pred
@@ -266,9 +281,7 @@ def main():
                                 capping=res_path if args.cap_ex else "",
                                 device=device,
                             )
-                            predictions[res["iteration"]] = (
-                                pred == decoded_pred
-                            ).item()
+                            predictions[res["iteration"]] = pred == decoded_pred
                     with open(
                         os.path.join(res_path, img_dir, "pred-stats.json"), "w"
                     ) as file:
