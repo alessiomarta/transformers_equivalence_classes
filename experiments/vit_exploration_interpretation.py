@@ -54,6 +54,7 @@ def interpret(
         None. Saves the interpreted image with marked patches to the specified directory.
     """
     original_image, _ = load_raw_image(*img_filename)
+    width, height = original_image.shape[:2]
     model.eval()
     json_stats = {}
     original_image_pred = model(original_image.to(device).unsqueeze(0))[0]
@@ -102,8 +103,8 @@ def interpret(
                         np.unravel_index(
                             p - 1,
                             (
-                                28 // model.embedding.patch_size,
-                                28 // model.embedding.patch_size,
+                                width // model.embedding.patch_size,
+                                height // model.embedding.patch_size,
                             ),
                         )
                     )
@@ -150,7 +151,7 @@ def interpret(
     ax.imshow(
         modified_image.squeeze().detach().cpu().numpy(),
         cmap="gray",
-        norm=Normalize(vmin=-1, vmax=1),
+        norm=Normalize(vmin=0, vmax=1),
     )
     for p in patch_idx:
         ax.add_patch(

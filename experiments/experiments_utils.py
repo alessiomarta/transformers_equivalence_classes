@@ -18,7 +18,7 @@ from transformers import (
     BertForSequenceClassification,
     BertTokenizerFast,
 )
-from models.vit import ViTForClassification
+from .models.vit import ViTForClassification
 
 
 def save_object(obj: Any, filename: str) -> None:
@@ -69,8 +69,8 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
             os.path.join(img_dir, filename)
         ) and filename.lower().endswith(image_extensions):
             image = Image.open(os.path.join(img_dir, filename)).convert("L")
-            if image.size != (28, 28):
-                image = image.resize((28, 28))
+            #if image.size != (28, 28):
+            #    image = image.resize((28, 28))
             images.append(transform(image))
             images_names.append(filename.split(".")[0])
     return torch.stack(images), images_names
@@ -91,13 +91,13 @@ def load_raw_image(img_dir: str, image_filename: str) -> Tuple[torch.Tensor, Lis
     )
     if os.path.isfile(os.path.join(img_dir, image_filename + ".jpg")):
         image = Image.open(os.path.join(img_dir, image_filename + ".jpg")).convert("L")
-        if image.size != (28, 28):
-            image = image.resize((28, 28))
+        #if image.size != (28, 28):
+        #    image = image.resize((28, 28))
         return transform(image), image_filename.split(".")[0]
     if os.path.isfile(os.path.join(img_dir, image_filename + ".png")):
         image = Image.open(os.path.join(img_dir, image_filename + ".png")).convert("L")
-        if image.size != (28, 28):
-            image = image.resize((28, 28))
+        #if image.size != (28, 28):
+        #    image = image.resize((28, 28))
         return transform(image), image_filename.split(".")[0]
 
 

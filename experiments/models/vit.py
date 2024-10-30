@@ -205,7 +205,7 @@ class MultiHeadAttention(nn.Module):
 
         return self.attn_gradients
 
-    def forward(self, x, output_attentions=False):
+    def forward(self, x, output_attentions=False, save_attn_gradients=False):
         # Project the query, key, and value
         # (batch_size, sequence_length, hidden_size) -> (batch_size, sequence_length, all_head_size * 3)
         qkv = self.qkv_projection(x)
@@ -237,9 +237,10 @@ class MultiHeadAttention(nn.Module):
         attention_scores = torch.matmul(query, key.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
         attention_probs = nn.functional.softmax(attention_scores, dim=-1)
+        if save_attn_gradients:
+            attention_probs.register_hook(self.save_attn_gradients)
         attention_probs = self.attn_dropout(attention_probs)
         self.save_attention_map(attention_probs)
-        attention_probs.register_hook(self.save_attn_gradients)
         
         # Calculate the attention output
         attention_output = torch.matmul(attention_probs, value)
@@ -293,10 +294,12 @@ class Block(nn.Module):
         self.mlp = MLP(config)
         self.layernorm_2 = nn.LayerNorm(config["hidden_size"])
 
-    def forward(self, x, output_attentions=False):
+    def forward(self, x, output_attentions=False, save_attn_gradients=False):
         # Self-attention
         attention_output, attention_probs = self.attention(
-            self.layernorm_1(x), output_attentions=output_attentions
+            self.layernorm_1(x), 
+            output_attentions=output_attentions, 
+            save_attn_gradients = save_attn_gradients
         )
         # Skip connection
         x = x + attention_output
@@ -324,11 +327,15 @@ class Encoder(nn.Module):
             block = Block(config)
             self.blocks.append(block)
 
-    def forward(self, x, output_attentions=False):
+    def forward(self, x, output_attentions=False, save_attn_gradients=False):
         # Calculate the transformer block's output for each block
         all_attentions = []
         for block in self.blocks:
-            x, attention_probs = block(x, output_attentions=output_attentions)
+            x, attention_probs = block(
+                x, 
+                output_attentions=output_attentions,
+                save_attn_gradients=save_attn_gradients
+            )
             if output_attentions:
                 all_attentions.append(attention_probs)
         # Return the encoder's output and the attention probabilities (optional)
@@ -359,14 +366,16 @@ class ViTForClassification(nn.Module):
         # Initialize the weights
         self.apply(self._init_weights)
 
-    def forward(self, x, output_attentions=False):
+    def forward(self, x, output_attentions=False, save_attn_gradients=False):
         # divide in patches
         x = self.patcher(x)
         # Calculate the embedding output
         embedding_output = self.embedding(x)
         # Calculate the encoder's output
         encoder_output, all_attentions = self.encoder(
-            embedding_output, output_attentions=output_attentions
+            embedding_output, 
+            output_attentions=output_attentions,
+            save_attn_gradients=save_attn_gradients
         )
         # Calculate the logits, take the [CLS] token's output as features for classification
         logits = self.classifier(encoder_output[:, 0])
