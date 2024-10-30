@@ -51,10 +51,9 @@ def generate_relevance(model, input, index=None):
 
     one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
     one_hot[0, index] = 1
-    one_hot_vector = one_hot
     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
     one_hot = torch.sum(one_hot * output)
-    model.zero_grad()
+    model.zero_grad(set_to_none = True)
     one_hot.backward(retain_graph=True)
 
     num_tokens = model.encoder.blocks[0].attention.get_attention_map().shape[-1]
@@ -64,6 +63,8 @@ def generate_relevance(model, input, index=None):
         cam = blk.attention.get_attention_map()
         cam = avg_heads(cam, grad)
         R += apply_self_attention_rules(R, cam)
+        del grad
+        del cam
     return R[0, 1:]
 
 

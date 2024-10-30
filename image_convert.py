@@ -6,6 +6,7 @@ from collections import defaultdict
 from matplotlib.colors import Normalize
 import matplotlib.pyplot as plt
 import argparse
+import gc
 from experiments.experiments_utils import *
 from analysis.vit_attention_exp import *
 
@@ -27,6 +28,10 @@ if __name__ == "__main__":
 
     args = parse_args()
 
+    transform = transforms.Compose(
+        [transforms.ToTensor()]
+    )
+
     test_sample_size = args.sample
     data_dir = f"./{args.dataset.lower()}_data"
     base_dir = f"./{args.dataset.lower()}_imgs"
@@ -44,21 +49,23 @@ if __name__ == "__main__":
         root=data_dir,
         download=True,
         train=False,
+        transform = transform
     )
 
     if test_sample_size is not None:
         # Randomly sample a subset of the test set
         indices = torch.randperm(len(testset))[:test_sample_size]
-        testset = torch.utils.data.Subset(testset, indices)
-        X_test = testset.data
-        y_test = testset.targets
+        subset = torch.utils.data.Subset(testset, indices)
+        data_test = subset.__getitems__(list(range(test_sample_size)))
+        X_test = torch.stack(list(map(lambda tup: tup[0], data_test)))
+        y_test = torch.stack(list(map(lambda tup: torch.tensor(tup[1]), data_test)))
     else:
         X_test = testset.data
         y_test = testset.targets
 
     norm = Normalize(vmin=0, vmax=1)
 
-    for label in testset.classes:
+    for y,label in enumerate(testset.classes):
 
         # Set saving directory
         label_dir = os.path.join(base_dir, label)
@@ -69,18 +76,18 @@ if __name__ == "__main__":
         configs = defaultdict(dict)
 
         # Filter by label
-        y = int(label[0])
         y_indices = indices[y_test == y]
         X = X_test[y_test == y].to(torch.float32)
 
         for i in range(X.shape[0]):
             fname = f"img_{y_indices[i]}"
+            print(fname)
 
             # Save image
             image = X[i,:,:]
             _, ax = plt.subplots()
             ax.tick_params(which = "both", bottom = False, top = False, left = False, right = False, labelbottom = False, labelleft = False)
-            ax.imshow(image.squeeze().numpy(), cmap="gray", norm=norm)
+            ax.imshow(image.squeeze().numpy().transpose((1,2,0)), cmap="gray", norm=norm)
             plt.savefig(os.path.join(label_dir, fname))
             plt.close()
 
@@ -102,6 +109,10 @@ if __name__ == "__main__":
                     configs[n][fname] = []
                 else:
                     configs[n][fname] = sorted_idx[:n].tolist()
+
+            del patches_attribution
+            del transformer_attribution
+            gc.collect()
 
         for n,config in configs.items():
             with open(os.path.join(label_dir, f"config_{n}.json"), "w") as f:
