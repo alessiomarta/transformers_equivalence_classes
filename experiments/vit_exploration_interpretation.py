@@ -54,7 +54,7 @@ def interpret(
         None. Saves the interpreted image with marked patches to the specified directory.
     """
     original_image, _ = load_raw_image(*img_filename)
-    width, height = original_image.shape[:2]
+    width, height = original_image.shape[1:]
     model.eval()
     json_stats = {}
     original_image_pred = model(original_image.to(device).unsqueeze(0))[0]
@@ -126,10 +126,14 @@ def interpret(
         modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
             mod_pixels[1], mod_pixels[0]
         ]
+        json_stats["modified_patches"] = modified_image[
+            :, mod_pixels[1], mod_pixels[0]
+        ].cpu()
     else:
         modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
         if len(modified_image.size()) == 2:
             modified_image = modified_image.unsqueeze(0)
+        json_stats["modified_patches"] = modified_image.cpu()
     modified_image_pred_proba = model(modified_image.unsqueeze(0))[
         0
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
