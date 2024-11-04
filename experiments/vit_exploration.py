@@ -74,8 +74,12 @@ def main():
 
     print("\tMeasuring and saving input distribution for capping...")
     embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-    min_embeddings = torch.min(embeddings, dim=-1).values
-    max_embeddings = torch.max(embeddings, dim=-1).values
+    min_embeddings = torch.min(
+        embeddings, dim=-1
+    ).values  # TODO - norma infinito della matrice di embedding
+    max_embeddings = torch.max(
+        embeddings, dim=-1
+    ).values  # TODO + norma infinito della matrice di embedding
 
     save_object(
         obj=min_embeddings.cpu(),
