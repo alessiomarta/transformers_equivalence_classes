@@ -80,7 +80,6 @@ if __name__ == "__main__":
 
         # Set config file
         configs = defaultdict(dict)
-        attributions = defaultdict(dict)
 
         # Filter by label
         y_indices = indices[y_test == y]
@@ -115,20 +114,20 @@ if __name__ == "__main__":
 
             for n,a in zip(N_patches, perc):
                 if n == tot_patches:
-                    configs[a][fname] = []
-                    attributions[a][fname] = {
-                        "idx": [],
-                        "att": [],
+                    configs[a][fname] = {
+                        "objective": 0,
+                        "explore": [],
+                        "attrib": [],
                         "img_dim": list(image.shape),
-                        "patch_dim": [model.patcher.patch_size, model.patcher.patch_size]
+                        "patch_dim": model.patcher.patch_size
                     }
                 else:
-                    configs[a][fname] = sorted_idx[:n].tolist()
-                    attributions[a][fname] = {
-                        "idx": sorted_idx[:n].tolist(),
-                        "att": sorted_scores[:n].tolist(),
+                    configs[a][fname] = {
+                        "objective": 0,
+                        "explore": sorted_idx[:n].tolist(),
+                        "attrib": sorted_scores[:n].tolist(),
                         "img_dim": list(image.shape),
-                        "patch_dim": [model.patcher.patch_size, model.patcher.patch_size]
+                        "patch_dim": model.patcher.patch_size
                     }
 
             del patches_attribution
@@ -138,9 +137,4 @@ if __name__ == "__main__":
         for n,config in configs.items():
             with open(os.path.join(label_dir, f"config_{n}.json"), "w") as f:
                 json.dump(config, f)
-
-        for n,config in attributions.items():
-            with open(os.path.join(label_dir, f"attrib_{n}.json"), "w") as f:
-                json.dump(config, f)
-
     
