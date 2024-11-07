@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import math
 from transformers import BertConfig
 from transformers.modeling_outputs import BaseModelOutputWithPooling, BaseModelOutput
-from Transformer_Explainability.BERT_explainability.modules.layers_ours import *
+from BERT_explainability.modules.layers_ours import *
 from transformers import (
     BertPreTrainedModel,
     PreTrainedModel,
