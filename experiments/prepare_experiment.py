@@ -220,7 +220,7 @@ def parse_arguments():
         "--model_path",
         required=True,
         type=str,
-        help="(Mandatory) Path to the model directory, or name of the Huggingface model. Must contain the model config file.",
+        help="(Mandatory) Path to the model directory where the pytorch file is, or name of the Huggingface model. Must contain the model config file.",
     )
 
     # Experiment directory
