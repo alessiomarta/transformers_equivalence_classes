@@ -6,5 +6,6 @@ __all__ = [
     "models",
     "vit_exploration",
     "vit_exploration_interpretation",
-    "vit_feature_importance"
+    "vit_feature_importance",
+    "prepare_experiment",
 ]
