@@ -6,8 +6,6 @@ and to experiment with different configurations and equivalence classes.
 
 import argparse
 import os
-
-import json
 from tqdm import tqdm
 from transformers import BertTokenizerFast, logging
 import torch
@@ -19,6 +17,8 @@ from experiments_utils import (
     load_raw_sent,
     load_object,
     save_object,
+    save_json,
+    load_json,
 )
 
 
@@ -99,17 +99,16 @@ def interpret(
             f"{iteration}-{str_pred}-{str_pred_capped}-{str_preds_modified}.json",
         )
         with open(fname, "w") as file:
-            file.write(str_res)
-        with open(json_fname, "w") as file:
-            json.dump(json_result, file)
-        with open(
-            os.path.join(
-                txt_out_dir,
-                f"{iteration}-stats.json",
-            ),
-            "w",
-        ) as file:
-            json.dump(json_stats, file)
+            file.write(str_res, encoding="utf-8")
+        save_json(json_fname, json_result)
+        stats_path = os.path.join(
+            txt_out_dir,
+            f"{iteration}-stats.json",
+        )
+        save_json(
+            stats_path,
+            json_stats,
+        )
 
     str_pred_capped = "exploration-capping"  # just for return values purposes
 
@@ -344,7 +343,7 @@ def main():
     args = parse_args()
     device = torch.device(args.device)
     txts, names = load_raw_sents(args.txt_dir)
-    eq_class_words = json.load(open(os.path.join(args.txt_dir, "config.json"), "r"))
+    eq_class_words = load_json(os.path.join(args.txt_dir, "config.json"))
     eq_class_words_and_ids = eq_class_words.copy()
     class_map = None
     if args.objective == "cls":
@@ -447,10 +446,10 @@ def main():
                                 device=device,
                             )
                             predictions[res["iteration"]] = pred == decoded_pred
-                        with open(
-                            os.path.join(res_path, txt_dir, "pred-stats.json"), "w"
-                        ) as file:
-                            json.dump(predictions, file)
+                        save_json(
+                            os.path.join(res_path, txt_dir, "pred-stats.json"),
+                            predictions,
+                        )
 
 
 if __name__ == "__main__":

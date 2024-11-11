@@ -7,21 +7,17 @@ and to experiment with different configurations and equivalence classes.
 import argparse
 import os
 import time
-import json
-import itertools
-from numpy import random
-from transformers import BertTokenizerFast, logging
+from transformers import logging
 import torch
-from numpy import around
 from simec.logics import explore
 from experiments_utils import (
     load_bert_model,
-    get_allowed_tokens,
     deactivate_dropout_layers,
     load_raw_sents,
     load_raw_sent,
-    load_object,
     save_object,
+    load_json,
+    save_json,
 )
 
 
@@ -50,11 +46,9 @@ def main():
     device = torch.device(args.device)
 
     txts, names = load_raw_sents(args.txt_dir)
-    eq_class_words = json.load(open(os.path.join(args.txt_dir, "config.json"), "r"))
+    eq_class_words = load_json(os.path.join(args.txt_dir, "config.json"))
+
     eq_class_words_and_ids = eq_class_words.copy()
-    class_map = None
-    if args.objective == "cls":
-        class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
     logging.set_verbosity_error()
     bert_tokenizer, bert_model = load_bert_model(
         args.model_name, mask_or_cls=args.objective, device=device
@@ -69,8 +63,7 @@ def main():
 
     if not os.path.exists(res_path):
         os.makedirs(res_path)
-    with open(os.path.join(res_path, "params.json"), "w") as file:
-        json.dump(vars(args), file)
+    save_json(os.path.join(res_path, "params.json"), vars(args))
 
     sentence_embeddings = []
     for idx, txt in enumerate(txts):

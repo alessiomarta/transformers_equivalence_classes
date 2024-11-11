@@ -7,13 +7,11 @@ model behavior better.
 
 import argparse
 import os
-import json
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
-import seaborn as sns
 from tqdm import tqdm
 from models.vit import PatchDecoder
 from experiments_utils import (
@@ -23,6 +21,8 @@ from experiments_utils import (
     load_model,
     load_object,
     save_object,
+    save_json,
+    load_json,
 )
 
 
@@ -209,16 +209,17 @@ def main():
         all_images, all_names, all_eq_class_patch = {}, {}, {}
         for subdir in os.listdir(args.img_dir):
             if os.path.isdir(os.path.join(args.img_dir, subdir)):
-                im, n = load_raw_images(os.path.join(args.img_dir, subdir))
-                all_images[subdir] = im.to(device)
-                all_names[subdir] = n
-                all_eq_class_patch[subdir] = json.load(
-                    open(os.path.join(args.img_dir, subdir, "config.json"), "r")
+                im, all_names[subdir] = load_raw_images(
+                    os.path.join(args.img_dir, subdir)
                 )
+                all_images[subdir] = im.to(device)
+                config_path = os.path.join(args.img_dir, subdir, "config.json")
+                all_eq_class_patch[subdir] = load_json(config_path)
     else:
         images, _ = load_raw_images(args.img_dir)
         images = images.to(device)
-        eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
+        config_path = os.path.join(args.img_dir, "config.json")
+        eq_class_patch = load_json(config_path)
 
     model, _ = load_model(
         model_path=args.model_path,
@@ -260,14 +261,13 @@ def main():
 
             for img_dir in os.listdir(res_path):
                 if os.path.isdir(os.path.join(res_path, img_dir)):
+                    results_dir = os.path.join(res_path, img_dir)
                     predictions = {}
-                    for filename in tqdm(
-                        os.listdir(os.path.join(res_path, img_dir)), desc=img_dir
-                    ):
+                    for filename in tqdm(os.listdir(results_dir), desc=img_dir):
                         if os.path.isfile(
                             os.path.join(res_path, img_dir, filename)
                         ) and filename.lower().endswith(".pkl"):
-                            res = load_object(os.path.join(res_path, img_dir, filename))
+                            res = load_object(os.path.join(results_dir, filename))
                             pred, decoded_pred = interpret(
                                 img_filename=(
                                     (args.img_dir, img_dir)
@@ -287,10 +287,10 @@ def main():
                                 device=device,
                             )
                             predictions[res["iteration"]] = pred == decoded_pred
-                    with open(
-                        os.path.join(res_path, img_dir, "pred-stats.json"), "w"
-                    ) as file:
-                        json.dump(predictions, file)
+                    save_json(
+                        filename=os.path.join(results_dir, "pred-stats.json"),
+                        object_to_save=predictions,
+                    )
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@ configuring models, and manipulating model training states.
 """
 
 import os
-import io
 import json
 import string
 from typing import Any, List, Tuple, Optional
@@ -46,6 +45,21 @@ def load_object(filename: str) -> Any:
     with open(filename, "rb") as outp:
         obj = pickle.load(outp)
     return obj
+
+
+def load_json(filename: str) -> dict:
+    return json.load(
+        open(
+            filename,
+            "r",
+            encoding="utf-8",
+        )
+    )
+
+
+def save_json(filename: str, object_to_save: Any) -> dict:
+    with open(filename, "w", encoding="utf-8") as file:
+        json.dump(object_to_save, file)
 
 
 def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:

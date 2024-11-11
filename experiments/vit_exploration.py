@@ -7,16 +7,17 @@ model behavior better.
 
 import argparse
 import os
-import json
 import time
 import torch
-from simec.logics import explore
 from experiments_utils import (
     load_raw_images,
     deactivate_dropout_layers,
     load_model,
     save_object,
+    load_json,
+    save_json,
 )
+from simec.logics import explore
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,7 +48,7 @@ def main():
     images, names = load_raw_images(args.img_dir)
     images = images.to(device)
 
-    eq_class_patch = json.load(open(os.path.join(args.img_dir, "config.json"), "r"))
+    eq_class_patch = load_json(os.path.join(args.img_dir, "config.json"))
 
     model, _ = load_model(
         model_path=args.model_path,
@@ -64,8 +65,7 @@ def main():
 
     if not os.path.exists(res_path):
         os.makedirs(res_path)
-    with open(os.path.join(res_path, "params.json"), "w") as file:
-        json.dump(vars(args), file)
+    save_json(os.path.join(res_path, "params.json"), vars(args))
 
     patches_embeddings = []
     for idx, img in enumerate(images):
