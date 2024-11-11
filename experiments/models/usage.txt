@@ -1,0 +1,1 @@
+python3 train_vit.py --batchsize 64 --epochs 100 --lr 0.01 --device cpu --savemodelevery 100 --expname cifar10_experiment --basedir ../.. --datadir cifar10
