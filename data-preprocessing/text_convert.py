@@ -11,11 +11,13 @@ import gc
 from transformers import BertTokenizerFast
 import sys
 
-sys.path.append("./analysis/Transformer_Explainability/BERT_rationale_benchmark/models")
 sys.path.append(
-    "./analysis/Transformer_Explainability/BERT_explainability/modules/BERT"
+    "../analysis/Transformer_Explainability/BERT_rationale_benchmark/models"
 )
-sys.path.append("./analysis/Transformer_Explainability/")
+sys.path.append(
+    "../analysis/Transformer_Explainability/BERT_explainability/modules/BERT"
+)
+sys.path.append("../analysis/Transformer_Explainability/")
 from ExplanationGenerator import Generator
 from BertForSequenceClassification import BertForSequenceClassification
 

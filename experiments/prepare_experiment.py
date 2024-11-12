@@ -48,14 +48,17 @@ def gather_files_and_configs(
             files_per_subdir = n_inputs // len(subdirs)
 
         for subdir in chosen_subdirs:
-            config_path = os.path.join(subdir, f"config_{patch_option}.json")
+            if patch_option == 'target-word':
+                config_path = os.path.join(subdir, f"config.json")
+            else:
+                config_path = os.path.join(subdir, f"config_{patch_option}.json")
             config_data = load_json(config_path)
 
             # Collect eligible input files
             input_files = [
                 os.path.join(subdir, f)
                 for f in os.listdir(subdir)
-                if f.endswith((".txt", ".png"))
+                if f.endswith((".txt", ".png", ".jpg", ".jpeg"))
             ]
 
             # Determine the number of files to sample in this subdir
@@ -78,14 +81,17 @@ def gather_files_and_configs(
 
     else:
         # Structure without subdirectories: Single directory with a single config.json and input files
-        config_path = os.path.join(input_path, f"config_{patch_option}.json")
+        if patch_option == 'target-word':
+            config_path = os.path.join(input_path, f"config.json")
+        else:
+            config_path = os.path.join(input_path, f"config_{patch_option}.json")
         config_data = load_json(config_path)
 
         # Collect eligible input files
         input_files = [
             os.path.join(input_path, f)
             for f in os.listdir(input_path)
-            if f.endswith((".txt", ".png"))
+            if f.endswith((".txt", ".png", ".jpg", ".jpeg"))
         ]
         if n_inputs > len(input_files):
             print(
@@ -101,12 +107,12 @@ def gather_files_and_configs(
             combined_config[input_name] = config_data.get(input_name.split(".")[0], {})
 
     # Save the combined configuration in the result directory
-    combined_config_path = os.path.join(exp_dir, "combined_config.json")
+    combined_config_path = os.path.join(exp_dir, "config.json")
     save_json(combined_config_path, combined_config)
 
-    print(
-        f"Successfully copied {n_inputs} files and created combined_config.json in {exp_dir}"
-    )
+    print(f"Successfully copied {n_inputs} files and created config.json in {exp_dir}")
+    
+    return input_file.split(".")[-1]
 
 
 def parse_arguments():
@@ -191,8 +197,8 @@ def parse_arguments():
         "-p",
         "--patches",
         required=True,
-        choices=["all", "one", "q1", "q2", "q3"],
-        help="(Mandatory) Number of patches to explore. Options: 'all', 'one', 'q1', 'q2', or 'q3'.",
+        choices=["all", "one", "q1", "q2", "q3", "target-word"],
+        help="(Mandatory) Number of patches to explore. Options: 'all', 'one', 'q1', 'q2', 'q3', or 'target-word. This latter option is intended for experiments, such as Winobias, where a specific target word is predefined for exploration. The number of tokens will vary based on how the tokenizer segments the target word.",
     )
 
     # Number of vocabulary tokens in percentile
@@ -223,6 +229,16 @@ def parse_arguments():
         help="(Mandatory) Path to the model directory where the pytorch file is, or name of the Huggingface model. Must contain the model config file.",
     )
 
+    # Model task
+    parser.add_argument(
+        "-o",
+        "--objective",
+        default="cls",
+        choices=["cls", "mlm"],
+        type=str,
+        help="Type of task that the chosen model is supposed to perform. Options: 'cls' (classification), 'mlm' (fill-mask). Defaults to 'cls' in unspecified",
+    )
+
     # Experiment directory
     parser.add_argument(
         "-ed",
@@ -239,11 +255,90 @@ if __name__ == "__main__":
     args = parse_arguments()
     experiment_dir = os.path.join(args.exp_dir, args.exp_name)
     # prepare selection of input to perform the experiments with based on
-    gather_files_and_configs(
+    input_type = gather_files_and_configs(
         input_path=args.orig_data_dir,
         exp_dir=experiment_dir,
         n_inputs=args.inputs,
         patch_option=args.patches,
     )
     # preparing experiment configuration file, where all parameters will be specified
-    save_json(os.path.join(experiment_dir, "parameters.json"), vars(args))
+    if input_type != "txt":
+        parameters = vars(args)
+        del parameters["vocab_tokens"]
+        save_json(os.path.join(experiment_dir, "parameters.json"), parameters)
+    else:
+        save_json(os.path.join(experiment_dir, "parameters.json"), vars(args))
+
+else:
+    # if not run as script, prepare every possible experiment given the fixed parameters grid
+    mnist_experiment = {
+        "exp_name": "mnist",
+        "algo": "both",
+        "iterations": 20000,
+        "delta_mult": None,
+        "threshold": 0.01,
+        "save_each": 1,
+        "inputs": None,
+        "repeat": None,
+        "patches": None,
+        "orig_data_dir": "../data/mnist_imgs",
+        "model_path": "../models/vit",
+        "objective": "cls",
+        "exp_dir": "../experiments",
+    }
+
+    cifar_experiment = {
+        "exp_name": "cifar",
+        "algo": "both",
+        "iterations": 20000,
+        "delta_mult": None,
+        "threshold": 0.01,
+        "save_each": 1,
+        "inputs": None,
+        "repeat": None,
+        "patches": None,
+        "orig_data_dir": "../data/cifar10_imgs",
+        "model_path": "../models/cifarTrain",
+        "objective": "cls",
+        "exp_dir": "../experiments/test",
+    }
+
+    hate_speech_experiment = {
+        "exp_name": "hatespeech",
+        "algo": "both",
+        "iterations": 20000,
+        "delta_mult": None,
+        "threshold": 0.01,
+        "save_each": 1,
+        "inputs": None,
+        "repeat": None,
+        "patches": None,
+        "vocab_tokens": None,
+        "orig_data_dir": "../data/measuring-hate-speech_txts",
+        "model_path": "ctoraman/hate-speech-bert",
+        "objective": "cls",
+        "exp_dir": "../experiments/test",
+    }
+
+    winobias_experiment = {
+        "exp_name": "winobias",
+        "algo": "both",
+        "iterations": 20000,
+        "delta_mult": None,
+        "threshold": 0.01,
+        "save_each": 1,
+        "inputs": None,
+        "repeat": None,
+        "patches": "target-word",
+        "vocab_tokens": None,
+        "orig_data_dir": "../data/wino_bias_txts",
+        "model_path": "bert-base-uncased",
+        "objective": "mlm",
+        "exp_dir": "../experiments/test",
+    }
+    delta_mult = [1, 5]
+    inputs=[200, 20]
+    patches= []
+    vocab_tokens = [1,5,10]
+    for experiment in [mnist_experiment, cifar_experiment, hate_speech_experiment, winobias_experiment]:
+        
