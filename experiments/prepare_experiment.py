@@ -357,7 +357,6 @@ if __name__ == "__main__":
             "inputs": None,
             "repeat": None,
             "patches": None,
-            "vocab_tokens": None,
             "objective": "cls",
         }
 
@@ -385,6 +384,7 @@ if __name__ == "__main__":
                 "model_path": "bert-base-uncased",
                 "patches": "target-word",
                 "objective": "mlm",
+                "vocab_tokens": None,
             },
         }
 
@@ -419,7 +419,7 @@ if __name__ == "__main__":
                         # Use vocab tokens if relevant to the experiment
                         vocab_token_list = (
                             VOCAB_TOKENS_VALUES
-                            if base_experiment.get("vocab_tokens") is not None
+                            if "vocab_tokens" in base_experiment
                             else [None]
                         )
 
