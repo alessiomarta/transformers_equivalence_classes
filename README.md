@@ -107,6 +107,7 @@ EXPERIMENTS = {
 ```
 
 **Experiments Variations**
+
 The script generates multiple experiments based on the selected datasets by varying parameters dynamically. These parameters include:
 
 - Delta Multiplier (delta_mult):
@@ -162,22 +163,6 @@ This creates configurations like:
 
 - `winobias-1-200-target-word-1`
 - `winobias-5-20-target-word-10`
-
-**Total Experiments**
-
-The total number of experiments depends on the parameter grid and datasets:
-
-For a dataset with:
-
-- 2 delta values,
-- 2 input values,
-- 5 patch options (or 1 predefined patch option),
-- 3 vocabulary token options (if applicable),
-
-The total configurations are:
-
-- `2 x 2 x 5 = 20` experiments for non-textual datasets.
-- `2 x 2 x 1 x 3 = 12` experiments for textual datasets like Winobias.
 
 ### Test Mode
 If you want to test the pipeline with reduced configurations:
