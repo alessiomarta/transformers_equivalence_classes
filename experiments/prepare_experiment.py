@@ -180,11 +180,18 @@ def parse_arguments():
         description="Prepare and configure experimental parameters for running research experiments."
     )
 
-    # Experiment name
+    # Default experiments
     parser.add_argument(
         "--default",
         action="store_true",
         help="If set, generates the default experiments",
+    )
+
+    # Default test experiments
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="If set, generates the default test experiments",
     )
 
     # Experiment name
@@ -347,10 +354,12 @@ if __name__ == "__main__":
             save_json(os.path.join(experiment_dir, "parameters.json"), vars(args))
     else:
         # if not run as individual experiment, prepare every possible experiment given the fixed parameters grid
+        if args.test:
+            print("Warning: creating experiments with --test option.")
         # Define a base experiment template
         BASE_EXPERIMENT = {
             "algo": "both",
-            "iterations": 20000,
+            "iterations": 10 if args.test else 20000,
             "delta_mult": None,
             "threshold": 0.01,
             "save_each": 1,
@@ -390,7 +399,7 @@ if __name__ == "__main__":
 
         # Define parameter variations
         DELTA_MULT_VALUES = [1, 5]
-        INPUT_VALUES = [200, 20]
+        INPUT_VALUES = [10, 2] if args.test else [200, 20]
         PATCH_OPTIONS = ["all", "one", "q1", "q2", "q3"]
         VOCAB_TOKENS_VALUES = [1, 5, 10]
 
@@ -404,7 +413,13 @@ if __name__ == "__main__":
 
                 for n_input in INPUT_VALUES:
                     base_experiment["inputs"] = n_input
-                    base_experiment["repeat"] = 1 if n_input == 200 else 10
+                    if n_input in [200, 10]:
+                        base_experiment["repeat"] = 1
+                    else:
+                        if args.test:
+                            base_experiment["repeat"] = 5
+                        else:
+                            base_experiment["repeat"] = 10
 
                     # Use specific patches if defined, otherwise use all options
                     patch_list = (
@@ -431,6 +446,8 @@ if __name__ == "__main__":
                             exp_name_full = f"{base_experiment['exp_name']}-{delta}-{n_input}-{patch_opt}"
                             if n_vocab:
                                 exp_name_full += f"-{n_vocab}"
+                            if args.test:
+                                exp_name_full = "test/" + exp_name_full
 
                             experiment_dir = os.path.join(
                                 "experiments_data", exp_name_full
