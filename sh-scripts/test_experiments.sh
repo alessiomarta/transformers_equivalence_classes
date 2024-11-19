@@ -1,3 +1,5 @@
+#!/bin/bash
+
 cd ..
 for dir in experiments_data/test/*; do
     echo $dir
