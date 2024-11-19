@@ -17,7 +17,7 @@ from transformers import (
     BertForSequenceClassification,
     BertTokenizerFast,
 )
-from models.vit import ViTForClassification
+from experiments.models.vit import ViTForClassification
 
 
 def save_object(obj: Any, filename: str) -> None:
@@ -86,7 +86,7 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
             # if image.size != (28, 28):
             #    image = image.resize((28, 28))
             images.append(transform(image))
-            images_names.append(filename.split(".")[0])
+            images_names.append(filename)
     return torch.stack(images), images_names
 
 
@@ -133,7 +133,7 @@ def load_raw_sents(txt_dir: str) -> Tuple[List[str], List[str]]:
         ) and filename.lower().endswith(".txt"):
             with open(os.path.join(txt_dir, filename), "r", encoding="utf-8") as file:
                 txts.append(file.readlines()[0])
-            txts_names.append(filename.split(".")[0])
+            txts_names.append(filename)
     return txts, txts_names
 
 
@@ -290,7 +290,7 @@ def load_bert_model(
     Returns:
         A tuple of a tokenizer and the loaded BERT model.
     """
-    if mask_or_cls == "mask":
+    if mask_or_cls in ["mask", "mlm"]:
         bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
         bert_model = BertForMaskedLM.from_pretrained(model_name)
         return bert_tokenizer, bert_model.to(device)
