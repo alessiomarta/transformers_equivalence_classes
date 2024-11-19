@@ -177,6 +177,15 @@ python experiments/prepare_experiments.py --default --test
 ```
 This generates test versions of the experiments with fewer iterations and inputs for quick debugging.
 
+## Run All the experiments in the `experiment_data` directory
+
+To run all the test experiments prepared with the prepare_experiments.py script, use the following:
+
+```bash
+cd sh-scripts
+bash test_experiments.sh
+```
+
 ### <a name="exploration"></a>Experiments on input space exploration
 
 
