@@ -112,7 +112,6 @@ def main():
     for algorithm in algorithms:
         print(f"\t{algorithm.upper()} exploration phase")
         for idx in range(len(txts)):
-            print(f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}")
             if params["objective"] == "mlm":
                 if (
                     isinstance(config[names[idx]]["objective"], list)
@@ -121,6 +120,9 @@ def main():
                     print("Skipping sentence because objective has more than 1 token.")
                     continue
             for r in range(params["repeat"]):
+                print(
+                    f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}\tRepetition: {r+1}/{params['repeat']}"
+                )
                 explore(
                     same_equivalence_class=algorithm == "simec",
                     input_embedding=sentence_embeddings[idx],

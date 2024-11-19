@@ -99,24 +99,29 @@ if __name__ == "__main__":
     for algorithm in algorithms:
         print(f"\t{algorithm.upper()} exploration phase")
         for idx in range(len(images)):
-            print("Image:", idx)
             input_patches, input_embedding = patches_embeddings[idx]
-            explore(
-                same_equivalence_class=algorithm == "simec",
-                input_embedding=input_embedding,
-                model=model.encoder,
-                threshold=params["threshold"],
-                delta_multiplier=params["delta_mult"],
-                n_iterations=params["iterations"],
-                pred_id=config[names[idx]]["objective"],
-                eq_class_emb_ids=(
-                    None
-                    if config[names[idx]]["explore"] == []
-                    else config[names[idx]]["explore"]
-                ),
-                device=device,
-                out_dir=os.path.join(res_path, names[idx].split(".")[0]),
-                keep_timing=True,
-                save_each=params["save_each"],
-                capping=res_path if args.cap_ex else "",
-            )
+            for r in range(params["repeat"]):
+                print(
+                    f"Image: {names[idx]}\t{idx+1}/{len(images)}\tRepetition: {r+1}/{params['repeat']}"
+                )
+                explore(
+                    same_equivalence_class=algorithm == "simec",
+                    input_embedding=input_embedding,
+                    model=model.encoder,
+                    threshold=params["threshold"],
+                    delta_multiplier=params["delta_mult"],
+                    n_iterations=params["iterations"],
+                    pred_id=config[names[idx]]["objective"],
+                    eq_class_emb_ids=(
+                        None
+                        if config[names[idx]]["explore"] == []
+                        else config[names[idx]]["explore"]
+                    ),
+                    device=device,
+                    out_dir=os.path.join(
+                        res_path, f"{names[idx].split('.')[0]}-{str(r)}"
+                    ),
+                    keep_timing=True,
+                    save_each=params["save_each"],
+                    capping=res_path if args.cap_ex else "",
+                )
