@@ -4,14 +4,15 @@ import os
 import json
 from collections import defaultdict
 from sklearn.model_selection import train_test_split
-from matplotlib.colors import Normalize
-import matplotlib.pyplot as plt
+from torchvision.utils import save_image
 import argparse
 import gc
 import sys
 
-sys.path.append("./experiments")
-sys.path.append("./analysis")
+sys.path.append("..")
+sys.path.append("../experiments")
+sys.path.append("../analysis")
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
 from experiments.experiments_utils import *
 from analysis.vit_attention_exp import *
 
@@ -70,7 +71,6 @@ if __name__ == "__main__":
         X_test = testset.data
         y_test = testset.targets
 
-    norm = Normalize(vmin=0, vmax=1)
     indices = torch.tensor(indices)
 
     for y, label in enumerate(testset.classes):
@@ -92,25 +92,8 @@ if __name__ == "__main__":
             print(fname)
 
             # Save image
-            image = X[i]
-            _, ax = plt.subplots()
-            ax.tick_params(
-                which="both",
-                bottom=False,
-                top=False,
-                left=False,
-                right=False,
-                labelbottom=False,
-                labelleft=False,
-            )
-            ax.imshow(image.numpy().transpose((1, 2, 0)), cmap="gray", norm=norm)
-            plt.savefig(
-                os.path.join(label_dir, fname),
-                bbox_inches="tight",
-                pad_inches=0,
-                dpi=1,
-            )
-            plt.close()
+            image = X[i] # shape = (colors, height, width)
+            save_image(image, os.path.join(label_dir, fname) + ".png", format = "png")
 
             # Compute and save configs
             V_patches = image.shape[1] // model.patcher.patch_size
