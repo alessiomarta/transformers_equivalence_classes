@@ -37,9 +37,12 @@ if __name__ == "__main__":
 
     transform = transforms.Compose([transforms.ToTensor()])
 
+    if not os.path.exists("../data"):
+        os.makedirs("../data")
+
     test_sample_size = args.sample
-    data_dir = f"./{args.dataset.lower()}_data"
-    base_dir = f"./{args.dataset.lower()}_imgs"
+    data_dir = f"../data/{args.dataset.lower()}_data"
+    base_dir = f"../data/{args.dataset.lower()}_imgs"
 
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
