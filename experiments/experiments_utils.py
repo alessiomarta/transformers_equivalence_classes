@@ -12,6 +12,7 @@ import pickle
 from PIL import Image
 import torch
 from torchvision import datasets, transforms
+from torchvision.io import read_image
 from transformers import (
     BertForMaskedLM,
     BertForSequenceClassification,
@@ -72,9 +73,6 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
     Returns:
         A tuple containing a batch of tensor images and their corresponding names.
     """
-    transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(0.5, 0.5)]
-    )
     image_extensions = (".jpg", ".jpeg", ".png", ".gif", ".bmp")
     images = []
     images_names = []
@@ -82,10 +80,8 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
         if os.path.isfile(
             os.path.join(img_dir, filename)
         ) and filename.lower().endswith(image_extensions):
-            image = Image.open(os.path.join(img_dir, filename)).convert("L")
-            # if image.size != (28, 28):
-            #    image = image.resize((28, 28))
-            images.append(transform(image))
+            image = read_image(os.path.join(img_dir, filename))
+            images.append(image)
             images_names.append(filename)
     return torch.stack(images), images_names
 
