@@ -424,7 +424,7 @@ if __name__ == "__main__":
                     # Use specific patches if defined, otherwise use all options
                     patch_list = (
                         [base_experiment["patches"]]
-                        if base_experiment["patches"]
+                        if base_experiment["patches"] == "target-word"
                         else PATCH_OPTIONS
                     )
 
