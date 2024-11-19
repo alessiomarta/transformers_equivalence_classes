@@ -104,7 +104,9 @@ if __name__ == "__main__":
                 labelleft=False,
             )
             ax.imshow(image.numpy().transpose((1, 2, 0)), cmap="gray", norm=norm)
-            plt.savefig(os.path.join(label_dir, fname), bbox_inches="tight")
+            plt.savefig(
+                os.path.join(label_dir, fname), bbox_inches="tight", pad_inches=0
+            )
             plt.close()
 
             # Compute and save configs
