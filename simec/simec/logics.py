@@ -160,6 +160,7 @@ def explore(
     input_embedding: torch.Tensor,
     model: torch.nn.Module,
     threshold: float,
+    delta_multiplier: int,
     n_iterations: int,
     pred_id: int,
     device: torch.device,
@@ -237,9 +238,9 @@ def explore(
 
         # Select a random eigenvectors corresponding to a null eigenvalue.
         # We consider an eigenvalue null if it is below a threshold value.
-        if same_equivalence_class:
+        if same_equivalence_class:  # simec
             number_eigenvalues = torch.count_nonzero(eigenvalues < threshold, dim=1)
-        else:
+        else:  # simexp
             number_eigenvalues = torch.count_nonzero(eigenvalues > threshold, dim=1)
         eigenvecs, eigenvals = [], []
         for emb in range(eigenvalues.size(0)):
@@ -261,7 +262,9 @@ def explore(
 
         with torch.no_grad():
             # Proceeed along a null direction
-            delta = (torch.tensor(1) / torch.sqrt(torch.max(eigenvalues))).to(device)
+            delta = (
+                torch.tensor(delta_multiplier) / torch.sqrt(torch.max(eigenvalues))
+            ).to(device)
 
             if eq_class_emb_ids:
                 input_emb[0, eq_class_emb_ids] = (
