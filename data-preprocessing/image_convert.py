@@ -105,7 +105,10 @@ if __name__ == "__main__":
             )
             ax.imshow(image.numpy().transpose((1, 2, 0)), cmap="gray", norm=norm)
             plt.savefig(
-                os.path.join(label_dir, fname), bbox_inches="tight", pad_inches=0
+                os.path.join(label_dir, fname),
+                bbox_inches="tight",
+                pad_inches=0,
+                dpi=1,
             )
             plt.close()
 
