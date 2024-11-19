@@ -13,6 +13,11 @@ Until the `simec` package is not published on PyPI, install it in editable mode:
 python3 -m pip install -e simec
 ```
 
+Run in the repository directory:
+```bash
+export PYTHONPATH=$(pwd)
+```
+
 ## Experiment preparation
 Below is an example of how to use the script `experiments/prepare_experiment.py` to generate an experiment configuration from the command line.
 
