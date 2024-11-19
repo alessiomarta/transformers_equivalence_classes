@@ -374,12 +374,12 @@ if __name__ == "__main__":
             "mnist": {
                 "exp_name": "mnist",
                 "orig_data_dir": "../data/mnist_imgs",
-                "model_path": "../models/vit",
+                "model_path": "../models/mnist_experiment",
             },
             "cifar": {
                 "exp_name": "cifar",
                 "orig_data_dir": "../data/cifar10_imgs",
-                "model_path": "../models/cifarTrain",
+                "model_path": "../models/cifar10_experiment",
             },
             "hatespeech": {
                 "exp_name": "hatespeech",
