@@ -22,65 +22,66 @@ from simec.logics import explore
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp-type", type=str, choices=["same", "diff"], required=True)
-    parser.add_argument("--exp-name", type=str, required=True)
-    parser.add_argument("--keep-constant", type=int, default=0)
-    parser.add_argument("--threshold", type=float, default=1e-2)
-    parser.add_argument("--iter", type=int, default=100)
-    parser.add_argument("--save-each", type=int, default=100)
-    parser.add_argument("--img-dir", type=str, required=True)
-    parser.add_argument("--model-path", type=str, required=True)
-    parser.add_argument("--config-path", type=str, required=True)
-    parser.add_argument("--out-dir", type=str, required=True)
-    parser.add_argument("--device", type=str)
-    parser.add_argument("--cap-ex", action="store_true")
+    parser.add_argument(
+        "--experiment-path",
+        type=str,
+        required=True,
+        help="Directory containing data, config.json, and parameters.json. Automatically created with prepare_experiment.py",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=str,
+        required=True,
+        help="Directory where to store the exploration output from this experiment.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        help="Where to run this experiment",
+    )
+    parser.add_argument("--cap-ex", default=True)
 
-    args = parser.parse_args()
-    if args.device is None:
-        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
-    return args
+    arguments = parser.parse_args()
+    if arguments.device is None:
+        arguments.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        ).type
+    else:
+        arguments.device = torch.device(arguments.device).type
+
+    return arguments
 
 
-def main():
+if __name__ == "__main__":
     args = parse_args()
+    params = load_json(os.path.join(args.experiment_path, "parameters.json"))
+    config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
-
-    images, names = load_raw_images(args.img_dir)
+    images, names = load_raw_images(args.experiment_path)
     images = images.to(device)
-
-    eq_class_patch = load_json(os.path.join(args.img_dir, "config.json"))
-
+    model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(
-        model_path=args.model_path,
-        config_path=args.config_path,
+        model_path=os.path.join(params["model_path"], model_filename[0]),
+        config_path=os.path.join(params["model_path"], "config.json"),
         device=device,
     )
     deactivate_dropout_layers(model)
     model = model.to(device)
-
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
-        args.out_dir, "input-space-exploration", args.exp_name + "-" + str_time
+        args.out_dir, os.path.basename(args.experiment_path) + "-" + str_time
     )
-
     if not os.path.exists(res_path):
         os.makedirs(res_path)
-    save_json(os.path.join(res_path, "params.json"), vars(args))
 
+    print("\tMeasuring and saving input distribution for capping...")
     patches_embeddings = []
     for idx, img in enumerate(images):
         input_patches = model.patcher(img.unsqueeze(0))
         patches_embeddings.append((input_patches, model.embedding(input_patches)))
-
-    print("\tMeasuring and saving input distribution for capping...")
     embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-    min_embeddings = torch.min(
-        embeddings, dim=-1
-    ).values  # TODO - norma infinito della matrice di embedding
-    max_embeddings = torch.max(
-        embeddings, dim=-1
-    ).values  # TODO + norma infinito della matrice di embedding
-
+    min_embeddings = torch.min(torch.abs(embeddings), dim=-1).values
+    max_embeddings = torch.max(torch.abs(embeddings), dim=-1).values
     save_object(
         obj=min_embeddings.cpu(),
         filename=os.path.join(res_path, "min_distribution.pkl"),
@@ -90,27 +91,32 @@ def main():
         filename=os.path.join(res_path, "max_distribution.pkl"),
     )
 
-    print("\tExploration phase")
-    for idx, img in enumerate(images):
-        print("Image:", idx)
-        input_patches, input_embedding = patches_embeddings[idx]
-        explore(
-            same_equivalence_class=args.exp_type == "same",
-            input_embedding=input_embedding,
-            model=model.encoder,
-            threshold=args.threshold,
-            n_iterations=args.iter,
-            pred_id=args.keep_constant,
-            eq_class_emb_ids=(
-                None if eq_class_patch[names[idx]] == [] else eq_class_patch[names[idx]]
-            ),
-            device=device,
-            out_dir=os.path.join(res_path, names[idx]),
-            keep_timing=True,
-            save_each=args.save_each,
-            capping=res_path if args.cap_ex else "",
-        )
-
-
-if __name__ == "__main__":
-    main()
+    algorithms = ["simec"]
+    if params["algo"] == "both":
+        algorithms.append("simexp")
+    elif params["algo"] == "simexp":
+        algorithms[0] = "simexp"
+    for algorithm in algorithms:
+        print(f"\t{algorithm.upper()} exploration phase")
+        for idx in range(len(images)):
+            print("Image:", idx)
+            input_patches, input_embedding = patches_embeddings[idx]
+            explore(
+                same_equivalence_class=algorithm == "simec",
+                input_embedding=input_embedding,
+                model=model.encoder,
+                threshold=params["threshold"],
+                delta_multiplier=params["delta_mult"],
+                n_iterations=params["iterations"],
+                pred_id=config[names[idx]]["objective"],
+                eq_class_emb_ids=(
+                    None
+                    if config[names[idx]]["explore"] == []
+                    else config[names[idx]]["explore"]
+                ),
+                device=device,
+                out_dir=os.path.join(res_path, names[idx].split(".")[0]),
+                keep_timing=True,
+                save_each=params["save_each"],
+                capping=res_path if args.cap_ex else "",
+            )
