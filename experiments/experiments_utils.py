@@ -12,7 +12,7 @@ import pickle
 from PIL import Image
 import torch
 from torchvision import datasets, transforms
-from torchvision.io import read_image
+from torchvision.io import read_image, ImageReadMode
 from transformers import (
     BertForMaskedLM,
     BertForSequenceClassification,
@@ -80,7 +80,14 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
         if os.path.isfile(
             os.path.join(img_dir, filename)
         ) and filename.lower().endswith(image_extensions):
-            image = read_image(os.path.join(img_dir, filename)).to(torch.float32)
+            if "mnist" in img_dir:
+                image = read_image(
+                    os.path.join(img_dir, filename), mode=ImageReadMode.GRAY
+                ).to(torch.float32)
+            else:
+                image = read_image(
+                    os.path.join(img_dir, filename), mode=ImageReadMode.RGB
+                ).to(torch.float32)
             images.append(image)
             images_names.append(filename)
     return torch.stack(images), images_names
