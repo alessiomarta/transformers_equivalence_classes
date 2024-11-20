@@ -138,7 +138,7 @@ def main():
                     delta_multiplier=params["delta_mult"],
                     n_iterations=params["iterations"],
                     out_dir=os.path.join(
-                        res_path, f"{names[idx].split('.')[0]}-{str(r)}"
+                        res_path, f"{algorithm}-{names[idx].split('.')[0]}-{str(r)}"
                     ),
                     keep_timing=True,
                     save_each=params["save_each"],

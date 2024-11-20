@@ -119,7 +119,7 @@ if __name__ == "__main__":
                     ),
                     device=device,
                     out_dir=os.path.join(
-                        res_path, f"{names[idx].split('.')[0]}-{str(r)}"
+                        res_path, f"{algorithm}-{names[idx].split('.')[0]}-{str(r)}"
                     ),
                     keep_timing=True,
                     save_each=params["save_each"],
