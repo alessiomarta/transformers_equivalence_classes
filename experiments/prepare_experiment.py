@@ -75,6 +75,29 @@ def generate_experiment(
     - Substitutes files from over-represented directories when needed.
     """
 
+    def collect_config_data(current_folder: str):
+        """
+        Collect and merge configuration data from a specified folder.
+
+        This function identifies the appropriate configuration file in the given folder
+        based on the `patch_option`, loads its contents, and updates the global configuration
+        dictionary `all_config_data` with the loaded data.
+
+        Parameters:
+        ----------
+        current_folder : str
+            Path to the folder containing the configuration file.
+        """
+        # Determine the configuration file based on the patch option
+        if patch_option == "target-word":
+            config_path = os.path.join(current_folder, "config.json")
+        else:
+            config_path = os.path.join(current_folder, f"config_{patch_option}.json")
+
+        # Load the configuration data
+        config_data = load_json(config_path)
+        all_config_data.update(config_data)
+
     def sample_file(current_folder: str, n_input_in_dir: int):
         """
         Sample files from the given folder and add configuration data.
@@ -86,15 +109,6 @@ def generate_experiment(
         n_input_in_dir : int
             Number of files to sample from this folder.
         """
-        # Determine the configuration file based on the patch option
-        if patch_option == "target-word":
-            config_path = os.path.join(current_folder, "config.json")
-        else:
-            config_path = os.path.join(current_folder, f"config_{patch_option}.json")
-
-        # Load the configuration data
-        config_data = load_json(config_path)
-        all_config_data.update(config_data)
 
         # Gather all eligible input files in the folder
         input_files = [
@@ -135,6 +149,9 @@ def generate_experiment(
     fixed_inputs = fixed_inputs or []
 
     if has_subdirs:
+        # Collect all needed config
+        for subdir in subdirs:
+            collect_config_data(subdir)
         # Adjust the sampling distribution across subdirectories
         if n_inputs < len(subdirs):
             # If fewer inputs than subdirectories, randomly select subdirs
@@ -150,6 +167,8 @@ def generate_experiment(
             sample_file(subdir, files_per_subdir)
 
     else:
+        # Collect all needed config
+        collect_config_data(input_path)
         # Sample files from a flat directory structure
         sample_file(input_path, n_inputs)
 
@@ -168,10 +187,8 @@ def generate_experiment(
             # Substitute from the most represented directory
             dirnames = [os.path.dirname(f) for f in all_sampled_files]
             parent_dirs = {f: dirnames.count(f) for f in dirnames}
-            max_parent_dir = max(parent_dirs, key=parent_dirs.get)
-            substitute = [s for s in all_sampled_files if s.startswith(max_parent_dir)][
-                0
-            ]
+            max_parent = max(parent_dirs, key=parent_dirs.get)
+            substitute = [s for s in all_sampled_files if s.startswith(max_parent)][0]
         substitute_idx = all_sampled_files.index(substitute)
         all_sampled_files[substitute_idx] = fixed_input
 
@@ -179,7 +196,7 @@ def generate_experiment(
     for input_file in all_sampled_files:
         shutil.copy(input_file, exp_dir)
         input_name = os.path.basename(input_file)
-        combined_config[input_name] = all_config_data.get(input_name.split(".")[0], {})
+        combined_config[input_name] = all_config_data[input_name.split(".")[0]]
 
     # Save the combined configuration file
     combined_config_path = os.path.join(exp_dir, "config.json")
