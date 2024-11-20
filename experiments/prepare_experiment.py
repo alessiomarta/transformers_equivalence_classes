@@ -29,63 +29,96 @@ from experiments_utils import (
 
 
 def generate_experiment(
-    input_path: str, exp_dir: str, n_inputs: int, patch_option: str
+    input_path: str,
+    exp_dir: str,
+    n_inputs: int,
+    patch_option: str,
+    fixed_inputs: list = None,
 ):
     """
-    Generate and configure an experimental directory.
+    Generate and configure an experimental directory with enhanced sampling behavior.
 
-    This function organizes an experimental setup by creating a result directory,
-    sampling input files from a source directory, and saving relevant configuration data.
+    This function organizes input files into a specified experimental directory,
+    sampling files from the source directory (flat or hierarchical). It supports:
+    - Including a list of fixed input files while ensuring the total sample size matches `n_inputs`.
+    - Replacing sampled files with fixed inputs if necessary.
+    - Returning the file type and a sample of filenames for inspection.
 
     Parameters:
     ----------
     input_path : str
-        Path to the directory containing input data. The structure can either be:
-        - Flat structure with all files in one directory and a single configuration file.
-        - Hierarchical structure with subdirectories, each containing a configuration file and related input files.
+        Path to the directory containing input data. Can be:
+        - Flat: All files in a single directory.
+        - Hierarchical: Subdirectories, each with its configuration and input files.
     exp_dir : str
-        Path to the result directory where sampled input files and the combined configuration JSON will be saved.
+        Path to the directory where sampled files and the combined configuration JSON will be saved.
     n_inputs : int
-        Number of input files to sample and include in the experiment directory.
-        If the directory contains subdirectories, the function distributes the sampling across them.
+        Number of input files to sample for the experiment.
     patch_option : str
-        Specifies the type of configuration file to use in each subdirectory:
-        - "target-word" for a specific configuration.
-        - Other options correspond to specific file naming conventions, e.g., "config_<patch_option>.json".
-
-    Behavior:
-    ---------
-    - Checks if the source directory has subdirectories (hierarchical structure).
-    - Samples input files evenly across subdirectories or from a flat directory.
-    - Copies the sampled input files to the result directory.
-    - Reads configuration files and combines them into a single JSON file saved in the result directory.
+        Configuration file type to use in each subdirectory:
+        - "target-word" for default config.json.
+        - Other options specify files like config_<patch_option>.json.
+    fixed_inputs : list, optional
+        List of fixed input filenames to include in the sample. Default is an empty list.
 
     Returns:
     --------
-    str
-        File type (extension) of the input files sampled (e.g., "txt", "png").
-        This helps in further processing, such as differentiating between text and image experiments.
+    tuple
+        - str: File type of the sampled inputs (e.g., "txt", "png").
+        - list: 20% of the sampled file names for inspection.
 
     Notes:
     ------
-    - If `n_inputs` exceeds the number of available files, all files are included with a warning.
-    - Creates the result directory if it does not exist.
-    - Handles missing or improperly structured data directories gracefully.
-
-    Example:
-    --------
-    generate_experiment(
-        input_path="./data/inputs",
-        exp_dir="./results/experiment_1",
-        n_inputs=10,
-        patch_option="target-word"
-    )
+    - Creates the output directory (`exp_dir`) if it does not exist.
+    - Handles cases where `n_inputs` exceeds available files gracefully.
+    - Ensures that fixed inputs are included in the sample.
+    - Substitutes files from over-represented directories when needed.
     """
+
+    def sample_file(current_folder: str, n_input_in_dir: int):
+        """
+        Sample files from the given folder and add configuration data.
+
+        Parameters:
+        ----------
+        current_folder : str
+            Directory containing input files and configuration data.
+        n_input_in_dir : int
+            Number of files to sample from this folder.
+        """
+        # Determine the configuration file based on the patch option
+        if patch_option == "target-word":
+            config_path = os.path.join(current_folder, "config.json")
+        else:
+            config_path = os.path.join(current_folder, f"config_{patch_option}.json")
+
+        # Load the configuration data
+        config_data = load_json(config_path)
+        all_config_data.update(config_data)
+
+        # Gather all eligible input files in the folder
+        input_files = [
+            os.path.join(current_folder, f)
+            for f in os.listdir(current_folder)
+            if f.endswith((".txt", ".png", ".jpg", ".jpeg"))
+        ]
+
+        # Sample files from the directory (up to the number requested)
+        sample_size = min(n_input_in_dir, len(input_files))
+        sampled_files = random.sample(input_files, sample_size)
+
+        # Add sampled files to the global list
+        all_sampled_files.extend(sampled_files)
+
     # Ensure result directory exists
     if not os.path.exists(exp_dir):
         os.makedirs(exp_dir)
 
-    # Check if we have subdirectories (Structure 2) or a flat structure (Structure 1)
+    # Ensure the output directory exists
+    if not os.path.exists(exp_dir):
+        os.makedirs(exp_dir)
+
+    # Determine if the source directory has subdirectories (hierarchical structure)
     subdirs = [
         os.path.join(input_path, d)
         for d in os.listdir(input_path)
@@ -93,86 +126,73 @@ def generate_experiment(
     ]
     has_subdirs = bool(subdirs)
 
-    # Initialize the result configuration dictionary
+    # Initialize data structures for configuration and sampled files
     combined_config = {}
+    all_config_data = {}
+    all_sampled_files = []
+
+    # Prepare the fixed input handling
+    fixed_inputs = fixed_inputs or []
 
     if has_subdirs:
-        # Adjust sampling based on the number of subdirectories
+        # Adjust the sampling distribution across subdirectories
         if n_inputs < len(subdirs):
-            # Randomly select `n_inputs` subdirectories if there are more subdirs than needed files
+            # If fewer inputs than subdirectories, randomly select subdirs
             chosen_subdirs = random.sample(subdirs, n_inputs)
             files_per_subdir = 1
         else:
-            # Use all subdirectories and sample approximately `files_per_subdir` files from each
+            # Evenly distribute sampling across all subdirectories
             chosen_subdirs = subdirs
             files_per_subdir = n_inputs // len(subdirs)
 
+        # Sample files from the selected subdirectories
         for subdir in chosen_subdirs:
-            if patch_option == "target-word":
-                config_path = os.path.join(subdir, "config.json")
-            else:
-                config_path = os.path.join(subdir, f"config_{patch_option}.json")
-            config_data = load_json(config_path)
-
-            # Collect eligible input files
-            input_files = [
-                os.path.join(subdir, f)
-                for f in os.listdir(subdir)
-                if f.endswith((".txt", ".png", ".jpg", ".jpeg"))
-            ]
-
-            # Determine the number of files to sample in this subdir
-            sample_size = min(files_per_subdir, len(input_files))
-            if sample_size < files_per_subdir:
-                print(
-                    f"Warning: Requested sample size per subdirectory ({files_per_subdir}) exceeds available files ({len(input_files)}) in '{subdir}'. "
-                    f"Proceeding with all available files instead."
-                )
-
-            sampled_files = random.sample(input_files, sample_size)
-
-            # Copy files and collect config data
-            for input_file in sampled_files:
-                shutil.copy(input_file, exp_dir)
-                input_name = os.path.basename(input_file)
-                combined_config[input_name] = config_data.get(
-                    input_name.split(".")[0], {}
-                )
+            sample_file(subdir, files_per_subdir)
 
     else:
-        # Structure without subdirectories: Single directory with a single config.json and input files
-        if patch_option == "target-word":
-            config_path = os.path.join(input_path, f"config.json")
-        else:
-            config_path = os.path.join(input_path, f"config_{patch_option}.json")
-        config_data = load_json(config_path)
+        # Sample files from a flat directory structure
+        sample_file(input_path, n_inputs)
 
-        # Collect eligible input files
-        input_files = [
-            os.path.join(input_path, f)
-            for f in os.listdir(input_path)
-            if f.endswith((".txt", ".png", ".jpg", ".jpeg"))
+    # Handle fixed inputs: Ensure they are included in the sampled files
+    fixed_inputs_to_add = set(fixed_inputs) - set(all_sampled_files)
+    for fixed_input in fixed_inputs_to_add:
+        # Find files to substitute with fixed inputs
+        parent_dir = os.path.dirname(fixed_input)
+        same_parent_dir = [
+            i for i in all_sampled_files if os.path.dirname(i) == parent_dir
         ]
-        if n_inputs > len(input_files):
-            print(
-                f"Warning: Requested sample size ({n_inputs}) exceeds available input files ({len(input_files)}). "
-                f"Proceeding with all available files instead."
-            )
-        sampled_files = random.sample(input_files, min(n_inputs, len(input_files)))
+        if same_parent_dir:
+            # Substitute a file from the same directory
+            substitute = random.sample(same_parent_dir, 1)[0]
+        else:
+            # Substitute from the most represented directory
+            dirnames = [os.path.dirname(f) for f in all_sampled_files]
+            parent_dirs = {f: dirnames.count(f) for f in dirnames}
+            max_parent_dir = max(parent_dirs, key=parent_dirs.get)
+            substitute = [s for s in all_sampled_files if s.startswith(max_parent_dir)][
+                0
+            ]
+        substitute_idx = all_sampled_files.index(substitute)
+        all_sampled_files[substitute_idx] = fixed_input
 
-        # Copy files and collect config data
-        for input_file in sampled_files:
-            shutil.copy(input_file, exp_dir)
-            input_name = os.path.basename(input_file)
-            combined_config[input_name] = config_data.get(input_name.split(".")[0], {})
+    # Copy all sampled files to the experiment directory
+    for input_file in all_sampled_files:
+        shutil.copy(input_file, exp_dir)
+        input_name = os.path.basename(input_file)
+        combined_config[input_name] = all_config_data.get(input_name.split(".")[0], {})
 
-    # Save the combined configuration in the result directory
+    # Save the combined configuration file
     combined_config_path = os.path.join(exp_dir, "config.json")
     save_json(combined_config_path, combined_config)
 
-    print(f"Successfully copied {n_inputs} files and created config.json in {exp_dir}")
+    # Return the file type and a 20% subset of the sampled files
+    file_type = os.path.splitext(all_sampled_files[0])[1][1:]
+    inspected_files = random.sample(
+        all_sampled_files, max(1, (len(all_sampled_files) * 20) // 100)
+    )
 
-    return input_file.split(".")[-1]
+    print(f"Successfully copied {n_inputs} files and created config.json in {exp_dir}")
+    return file_type, inspected_files
 
 
 def parse_arguments():
@@ -408,18 +428,21 @@ if __name__ == "__main__":
             base_experiment = copy.deepcopy(BASE_EXPERIMENT)
             base_experiment.update(exp_overrides)
 
-            for delta in DELTA_MULT_VALUES:
-                base_experiment["delta_mult"] = delta
-
-                for n_input in INPUT_VALUES:
-                    base_experiment["inputs"] = n_input
-                    if n_input in [200, 10]:
-                        base_experiment["repeat"] = 1
+            for n_input in INPUT_VALUES:
+                base_experiment["inputs"] = n_input
+                if n_input in [200, 10]:
+                    base_experiment["repeat"] = 1
+                else:
+                    if args.test:
+                        base_experiment["repeat"] = 5
                     else:
-                        if args.test:
-                            base_experiment["repeat"] = 5
-                        else:
-                            base_experiment["repeat"] = 10
+                        base_experiment["repeat"] = 10
+
+                if args.test:
+                    sample = None
+
+                for delta in DELTA_MULT_VALUES:
+                    base_experiment["delta_mult"] = delta
 
                     # Use specific patches if defined, otherwise use all options
                     patch_list = (
@@ -452,14 +475,31 @@ if __name__ == "__main__":
                             experiment_dir = os.path.join(
                                 "experiments_data", exp_name_full
                             )
-
                             # Generate experiment and save parameters
-                            generate_experiment(
-                                input_path=base_experiment["orig_data_dir"],
-                                exp_dir=experiment_dir,
-                                n_inputs=n_input,
-                                patch_option=patch_opt,
-                            )
+                            if args.test:
+                                # If run under test condition, ensure that experiments are done considering at least 20% of the sample fixed to compare results over experiments
+                                if sample:
+                                    generate_experiment(
+                                        input_path=base_experiment["orig_data_dir"],
+                                        exp_dir=experiment_dir,
+                                        n_inputs=n_input,
+                                        patch_option=patch_opt,
+                                        fixed_inputs=sample,
+                                    )
+                                else:
+                                    _, sample = generate_experiment(
+                                        input_path=base_experiment["orig_data_dir"],
+                                        exp_dir=experiment_dir,
+                                        n_inputs=n_input,
+                                        patch_option=patch_opt,
+                                    )
+                            else:
+                                generate_experiment(
+                                    input_path=base_experiment["orig_data_dir"],
+                                    exp_dir=experiment_dir,
+                                    n_inputs=n_input,
+                                    patch_option=patch_opt,
+                                )
 
                             # Filter out keys with None values
                             filtered_experiment = {
@@ -472,3 +512,4 @@ if __name__ == "__main__":
                                 os.path.join(experiment_dir, "parameters.json"),
                                 filtered_experiment,
                             )
+    print("Done")
