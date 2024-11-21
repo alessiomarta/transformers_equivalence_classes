@@ -9,7 +9,6 @@ import json
 import string
 from typing import Any, List, Tuple, Optional
 import pickle
-from PIL import Image
 import torch
 from torchvision import datasets, transforms
 from torchvision.io import read_image, ImageReadMode
@@ -19,6 +18,10 @@ from transformers import (
     BertTokenizerFast,
 )
 from experiments.models.vit import ViTForClassification
+
+
+class ExplorationException(Exception):
+    pass
 
 
 def save_object(obj: Any, filename: str) -> None:

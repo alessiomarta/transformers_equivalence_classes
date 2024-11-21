@@ -177,3 +177,5 @@ res/
 .DS_Store
 
 .vscode
+
+error_log.txt

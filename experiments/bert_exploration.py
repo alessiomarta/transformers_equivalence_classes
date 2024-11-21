@@ -6,6 +6,7 @@ and to experiment with different configurations and equivalence classes.
 
 import argparse
 import os
+import logging as log
 import time
 from transformers import logging
 import torch
@@ -18,6 +19,16 @@ from experiments_utils import (
     save_object,
     load_json,
     save_json,
+    ExplorationException,
+)
+
+
+# Configure the logger
+log.basicConfig(
+    filename="error_log.txt",
+    filemode="a",
+    level=log.ERROR,
+    format="\n\n%(asctime)s - %(levelname)s - %(message)s",
 )
 
 
@@ -123,28 +134,47 @@ def main():
                 print(
                     f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}\tRepetition: {r+1}/{params['repeat']}"
                 )
-                explore(
-                    same_equivalence_class=algorithm == "simec",
-                    input_embedding=sentence_embeddings[idx],
-                    model=bert_model.bert.encoder,
-                    eq_class_emb_ids=(
-                        None
-                        if config[names[idx]]["explore"] == []
-                        else config[names[idx]]["explore"]
-                    ),
-                    pred_id=config[names[idx]]["objective"],
-                    device=device,
-                    threshold=params["threshold"],
-                    delta_multiplier=params["delta_mult"],
-                    n_iterations=params["iterations"],
-                    out_dir=os.path.join(
-                        res_path, f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}"
-                    ),
-                    keep_timing=True,
-                    save_each=params["save_each"],
-                    capping=res_path if args.cap_ex else "",
-                )
+                try:
+                    explore(
+                        same_equivalence_class=algorithm == "simec",
+                        input_embedding=sentence_embeddings[idx],
+                        model=bert_model.bert.encoder,
+                        eq_class_emb_ids=(
+                            None
+                            if config[names[idx]]["explore"] == []
+                            else config[names[idx]]["explore"]
+                        ),
+                        pred_id=config[names[idx]]["objective"],
+                        device=device,
+                        threshold=params["threshold"],
+                        delta_multiplier=params["delta_mult"],
+                        n_iterations=params["iterations"],
+                        out_dir=os.path.join(
+                            res_path,
+                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
+                        ),
+                        keep_timing=True,
+                        save_each=params["save_each"],
+                        capping=res_path if args.cap_ex else "",
+                    )
+                except Exception as e:
+                    log.error(
+                        "Unhandled exception during exploration:\nContext:\n"
+                        "res_path: %s\nalgorithm: %s\nname: %s\nparams_repeat: %d\nError: %s",
+                        res_path,
+                        algorithm,
+                        names[idx],
+                        r + 1,
+                        e,
+                        exc_info=True,
+                    )
+                    raise ExplorationException from e
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        if not isinstance(e, ExplorationException):
+            log.error("An error occurred: %s", e, exc_info=True)
+        raise

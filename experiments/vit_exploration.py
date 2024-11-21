@@ -7,6 +7,7 @@ model behavior better.
 
 import argparse
 import os
+import logging as log
 import time
 import torch
 from experiments_utils import (
@@ -16,8 +17,17 @@ from experiments_utils import (
     save_object,
     load_json,
     save_json,
+    ExplorationException,
 )
 from simec.logics import explore
+
+# Configure the logger
+log.basicConfig(
+    filename="error_log.txt",
+    filemode="a",
+    level=log.ERROR,
+    format="\n\n%(asctime)s - %(levelname)s - %(message)s",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     return arguments
 
 
-if __name__ == "__main__":
+def main():
     args = parse_args()
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
@@ -104,24 +114,47 @@ if __name__ == "__main__":
                 print(
                     f"Image: {names[idx]}\t{idx+1}/{len(images)}\tRepetition: {r+1}/{params['repeat']}"
                 )
-                explore(
-                    same_equivalence_class=algorithm == "simec",
-                    input_embedding=input_embedding,
-                    model=model.encoder,
-                    threshold=params["threshold"],
-                    delta_multiplier=params["delta_mult"],
-                    n_iterations=params["iterations"],
-                    pred_id=config[names[idx]]["objective"],
-                    eq_class_emb_ids=(
-                        None
-                        if config[names[idx]]["explore"] == []
-                        else config[names[idx]]["explore"]
-                    ),
-                    device=device,
-                    out_dir=os.path.join(
-                        res_path, f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}"
-                    ),
-                    keep_timing=True,
-                    save_each=params["save_each"],
-                    capping=res_path if args.cap_ex else "",
-                )
+                try:
+                    explore(
+                        same_equivalence_class=algorithm == "simec",
+                        input_embedding=input_embedding,
+                        model=model.encoder,
+                        threshold=params["threshold"],
+                        delta_multiplier=params["delta_mult"],
+                        n_iterations=params["iterations"],
+                        pred_id=config[names[idx]]["objective"],
+                        eq_class_emb_ids=(
+                            None
+                            if config[names[idx]]["explore"] == []
+                            else config[names[idx]]["explore"]
+                        ),
+                        device=device,
+                        out_dir=os.path.join(
+                            res_path,
+                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
+                        ),
+                        keep_timing=True,
+                        save_each=params["save_each"],
+                        capping=res_path if args.cap_ex else "",
+                    )
+                except Exception as e:
+                    log.error(
+                        "Unhandled exception during exploration:\nContext:\n"
+                        "res_path: %s\nalgorithm: %s\nname: %s\nparams_repeat: %d\nError: %s",
+                        res_path,
+                        algorithm,
+                        names[idx],
+                        r + 1,
+                        e,
+                        exc_info=True,
+                    )
+                    raise ExplorationException from e
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        if not isinstance(e, ExplorationException):
+            log.error("An error occurred: %s", e, exc_info=True)
+        raise
