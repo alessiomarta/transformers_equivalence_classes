@@ -383,12 +383,12 @@ if __name__ == "__main__":
             patch_option=args.patches,
         )
         # preparing experiment configuration file, where all parameters will be specified
+        parameters = vars(args)
         if input_type != "txt":
-            parameters = vars(args)
             del parameters["vocab_tokens"]
-            save_json(os.path.join(experiment_dir, "parameters.json"), parameters)
         else:
-            save_json(os.path.join(experiment_dir, "parameters.json"), vars(args))
+            parameters["vocab_tokens"] = [parameters["vocab_tokens"]]
+        save_json(os.path.join(experiment_dir, "parameters.json"), parameters)
     else:
         # if not run as individual experiment, prepare every possible experiment given the fixed parameters grid
         if args.test:
@@ -422,7 +422,7 @@ if __name__ == "__main__":
                 "exp_name": "hatespeech",
                 "orig_data_dir": "../data/measuring-hate-speech_txts",
                 "model_path": "ctoraman/hate-speech-bert",
-                "vocab_tokens": None,
+                "vocab_tokens": [1, 5, 10],
             },
             "winobias": {
                 "exp_name": "winobias",
@@ -430,7 +430,7 @@ if __name__ == "__main__":
                 "model_path": "bert-base-uncased",
                 "patches": "target-word",
                 "objective": "mlm",
-                "vocab_tokens": None,
+                "vocab_tokens": [1, 5, 10],
             },
         }
 
@@ -438,7 +438,6 @@ if __name__ == "__main__":
         DELTA_MULT_VALUES = [1, 5]
         INPUT_VALUES = [10, 2] if args.test else [200, 20]
         PATCH_OPTIONS = ["all", "one", "q1", "q2", "q3"]
-        VOCAB_TOKENS_VALUES = [1, 5, 10]
 
         # Iterate through experiments and generate configurations
         for exp_name, exp_overrides in EXPERIMENTS.items():
@@ -471,62 +470,45 @@ if __name__ == "__main__":
                     for patch_opt in patch_list:
                         base_experiment["patches"] = patch_opt
 
-                        # Use vocab tokens if relevant to the experiment
-                        vocab_token_list = (
-                            VOCAB_TOKENS_VALUES
-                            if "vocab_tokens" in base_experiment
-                            else [None]
-                        )
+                        # Generate a descriptive experiment name
+                        exp_name_full = f"{base_experiment['exp_name']}-{delta}-{n_input}-{patch_opt}"
+                        if args.test:
+                            exp_name_full = "test/" + exp_name_full
 
-                        for n_vocab in vocab_token_list:
-                            if n_vocab:
-                                base_experiment["vocab_tokens"] = n_vocab
-
-                            # Generate a descriptive experiment name
-                            exp_name_full = f"{base_experiment['exp_name']}-{delta}-{n_input}-{patch_opt}"
-                            if n_vocab:
-                                exp_name_full += f"-{n_vocab}"
-                            if args.test:
-                                exp_name_full = "test/" + exp_name_full
-
-                            experiment_dir = os.path.join(
-                                "experiments_data", exp_name_full
-                            )
-                            # Generate experiment and save parameters
-                            if args.test:
-                                # If run under test condition, ensure that experiments are done considering at least 20% of the sample fixed to compare results over experiments
-                                if sample:
-                                    generate_experiment(
-                                        input_path=base_experiment["orig_data_dir"],
-                                        exp_dir=experiment_dir,
-                                        n_inputs=n_input,
-                                        patch_option=patch_opt,
-                                        fixed_inputs=sample,
-                                    )
-                                else:
-                                    _, sample = generate_experiment(
-                                        input_path=base_experiment["orig_data_dir"],
-                                        exp_dir=experiment_dir,
-                                        n_inputs=n_input,
-                                        patch_option=patch_opt,
-                                    )
-                            else:
+                        experiment_dir = os.path.join("experiments_data", exp_name_full)
+                        # Generate experiment and save parameters
+                        if args.test:
+                            # If run under test condition, ensure that experiments are done considering at least 20% of the sample fixed to compare results over experiments
+                            if sample:
                                 generate_experiment(
                                     input_path=base_experiment["orig_data_dir"],
                                     exp_dir=experiment_dir,
                                     n_inputs=n_input,
                                     patch_option=patch_opt,
+                                    fixed_inputs=sample,
                                 )
-
-                            # Filter out keys with None values
-                            filtered_experiment = {
-                                k: v
-                                for k, v in base_experiment.items()
-                                if v is not None
-                            }
-
-                            save_json(
-                                os.path.join(experiment_dir, "parameters.json"),
-                                filtered_experiment,
+                            else:
+                                _, sample = generate_experiment(
+                                    input_path=base_experiment["orig_data_dir"],
+                                    exp_dir=experiment_dir,
+                                    n_inputs=n_input,
+                                    patch_option=patch_opt,
+                                )
+                        else:
+                            generate_experiment(
+                                input_path=base_experiment["orig_data_dir"],
+                                exp_dir=experiment_dir,
+                                n_inputs=n_input,
+                                patch_option=patch_opt,
                             )
+
+                        # Filter out keys with None values
+                        filtered_experiment = {
+                            k: v for k, v in base_experiment.items() if v is not None
+                        }
+
+                        save_json(
+                            os.path.join(experiment_dir, "parameters.json"),
+                            filtered_experiment,
+                        )
     print("Done")
