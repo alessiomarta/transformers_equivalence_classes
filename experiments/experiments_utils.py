@@ -20,6 +20,33 @@ from transformers import (
 from experiments.models.vit import ViTForClassification
 
 
+def collect_pkl_res_files(exploration_result_dir: str) -> list:
+    """
+    Collects paths to all `.pkl` files in a given exploration result directory.
+
+    Parameters:
+    ----------
+    exploration_result_dir : str
+        The root directory to search for `.pkl` files.
+
+    Returns:
+    --------
+    list
+        A list of paths to `.pkl` files found in the directory tree, without considering min and max distribution files.
+    """
+    pkl_paths = []
+    for root, _, files in os.walk(exploration_result_dir):
+        # Filter and collect only `.pkl` files
+        pkl_paths.extend(
+            os.path.join(root, f)
+            for f in files
+            if f.lower().endswith(".pkl")
+            and "distribution" not in f
+            and "interpretation" not in root
+        )
+    return pkl_paths
+
+
 class ExplorationException(Exception):
     pass
 
@@ -107,10 +134,10 @@ def load_raw_image(img_dir: str, image_filename: str) -> Tuple[torch.Tensor, Lis
         A tuple containing a batch of tensor images and their corresponding names.
     """
     if os.path.isfile(os.path.join(img_dir, image_filename + ".jpg")):
-        image = read_image(os.path.join(img_dir, filename)).to(torch.float32)
+        image = read_image(os.path.join(img_dir, image_filename)).to(torch.float32)
         return image, image_filename.split(".")[0]
     if os.path.isfile(os.path.join(img_dir, image_filename + ".png")):
-        image = read_image(os.path.join(img_dir, filename)).to(torch.float32)
+        image = read_image(os.path.join(img_dir, image_filename)).to(torch.float32)
         return image, image_filename.split(".")[0]
 
 
