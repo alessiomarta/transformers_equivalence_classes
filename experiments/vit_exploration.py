@@ -90,8 +90,8 @@ def main():
         input_patches = model.patcher(img.unsqueeze(0))
         patches_embeddings.append((input_patches, model.embedding(input_patches)))
     embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-    min_embeddings = torch.min(torch.abs(embeddings), dim=-1).values
-    max_embeddings = torch.max(torch.abs(embeddings), dim=-1).values
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
     save_object(
         obj=min_embeddings.cpu(),
         filename=os.path.join(res_path, "min_distribution.pkl"),
