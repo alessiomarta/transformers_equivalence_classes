@@ -195,7 +195,7 @@ def collect_data_and_preds(
                         data["file-name"].append(res)
                         data["original-pred"].append(int(stats["original_image_pred"]))
                         data["modified-pred-proba"].append(
-                            stats["modified_image_pred_proba"]
+                            torch.max(stats["modified_image_pred_proba"]).item()
                         )
                         data["modified-original-proba"].append(
                             stats["modified_original_pred_proba"]
