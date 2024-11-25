@@ -86,7 +86,7 @@ def main():
 
     print("\tMeasuring and saving input distribution for capping...")
     patches_embeddings = []
-    for idx, img in enumerate(images):
+    for img in images:
         input_patches = model.patcher(img.unsqueeze(0))
         patches_embeddings.append((input_patches, model.embedding(input_patches)))
     embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
