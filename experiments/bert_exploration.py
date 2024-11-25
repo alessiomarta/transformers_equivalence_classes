@@ -104,8 +104,8 @@ def main():
     embeddings = torch.concat(
         [s.clone().permute(0, 2, 1) for s in sentence_embeddings], dim=-1
     )
-    min_embeddings = torch.min(torch.abs(embeddings), dim=-1).values
-    max_embeddings = torch.max(torch.abs(embeddings), dim=-1).values
+    min_embeddings = torch.min(embeddings, dim=-1).values
+    max_embeddings = torch.max(embeddings, dim=-1).values
     save_object(
         obj=min_embeddings.cpu(),
         filename=os.path.join(res_path, "min_distribution.pkl"),
