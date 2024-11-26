@@ -16,6 +16,10 @@ from numpy import around
 import torch
 
 
+class ExplorationException(Exception):
+    pass
+
+
 def save_object(obj, filename):
     with open(filename, "wb") as outp:  # Overwrites any existing file.
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
@@ -151,9 +155,11 @@ def explore(
     pred_id: int,
     device: torch.device,
     eq_class_emb_ids: List[int] = None,
+    min_embeddings: torch.Tensor = None,
+    max_embeddings: torch.Tensor = None,
     save_each: int = 10,
     out_dir: str = ".",
-    capping: str = "",
+    capping: bool = False,
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -179,6 +185,11 @@ def explore(
         None: Saves intermediate results to files.
     """
 
+    if capping and (min_embeddings is None or max_embeddings is None):
+        raise ExplorationException(
+            "Capping is set but no minimum distribution embeddings or maximum distribution embeddings were passed."
+        )
+
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
     output_emb = model(input_emb)[0].to(device)
@@ -193,12 +204,6 @@ def explore(
             1,
         )
     ).to(device)
-
-    if capping:
-        with open(os.path.join(capping, "min_distribution.pkl"), "rb") as outp:
-            min_embeddings = pickle.load(outp).to(device)
-        with open(os.path.join(capping, "max_distribution.pkl"), "rb") as outp:
-            max_embeddings = pickle.load(outp).to(device)
 
     # Keep track of the length of the polygonal
     distance = torch.zeros(
