@@ -287,8 +287,7 @@ def measure_embedding_distribution(data_dir, model_path, objective, device):
     tokenized = bert_tokenizer(
         txts,
         return_tensors="pt",
-        padding=True,
-        truncation=True,
+        padding="max_length",
         return_attention_mask=False,
     ).to(device)
     embeddings = bert_model.bert.embeddings(**tokenized).detach()
