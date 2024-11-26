@@ -84,7 +84,6 @@ def pullback_eigenvalues(
     model: torch.nn.Module,
     pred_id: int,
     device: torch.device,
-    keep_timing: bool = True,
     out_dir: str = ".",
 ):
     """
@@ -98,17 +97,14 @@ def pullback_eigenvalues(
         pred_id (int): Index of the prediction to be considered for the pullback
         calculation.
         device (torch.device): Device to perform the computation on.
-        keep_timing (bool, optional): Flag to determine whether timing data
-        should be saved. Defaults to False.
         out_dir (str, optional): Directory where timing and eigenvalues data
-        will be saved if `keep_timing` is True.
+        will be saved.
 
     Returns:
         torch.Tensor: Eigenvalues of the pullback metric.
     """
 
-    if keep_timing:
-        tic = time.time()
+    tic = time.time()
 
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
@@ -134,25 +130,15 @@ def pullback_eigenvalues(
 
     pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
 
-    if keep_timing:
-        save_object(
-            {
-                "input_embedding": input_emb.cpu(),
-                "output_embedding": output_emb.cpu(),
-                "eigenvalues": eigenvalues.cpu(),
-                "time": time.time() - tic,
-            },
-            os.path.join(out_dir, "pullback_eigenvalues.pkl"),
-        )
-    else:
-        save_object(
-            {
-                "input_embedding": input_emb.cpu(),
-                "output_embedding": output_emb.cpu(),
-                "eigenvalues": eigenvalues.cpu(),
-            },
-            os.path.join(out_dir, "pullback_eigenvalues.pkl"),
-        )
+    save_object(
+        {
+            "input_embedding": input_emb.cpu(),
+            "output_embedding": output_emb.cpu(),
+            "eigenvalues": eigenvalues.cpu(),
+            "time": time.time() - tic,
+        },
+        os.path.join(out_dir, "pullback_eigenvalues.pkl"),
+    )
 
 
 def explore(
@@ -165,7 +151,6 @@ def explore(
     pred_id: int,
     device: torch.device,
     eq_class_emb_ids: List[int] = None,
-    keep_timing: bool = True,
     save_each: int = 10,
     out_dir: str = ".",
     capping: str = "",
@@ -187,7 +172,6 @@ def explore(
         device (torch.device): Device to run the computations on.
         eq_class_emb_ids (list, optional): Indices of embeddings belonging to
         the same equivalence class.
-        keep_timing (bool, optional): Whether to keep timing for profiling.
         save_each (int, optional): Frequency of saving the state.
         out_dir (str, optional): Directory to save the outputs.
 
@@ -221,13 +205,11 @@ def explore(
         input_emb.size(1) if not eq_class_emb_ids else len(eq_class_emb_ids)
     ).to(device)
 
-    if keep_timing:
-        times = defaultdict(float)
-        times["n_iterations"] = n_iterations
+    times = defaultdict(float)
+    times["n_iterations"] = n_iterations
 
     for i in range(n_iterations):
-        if keep_timing:
-            tic = time.time()
+        tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
         eigenvalues, eigenvectors = pullback(
             output_simec=output_emb[0, pred_id].squeeze(),
@@ -283,20 +265,11 @@ def explore(
                 input_emb[input_emb > max_embeddings] = max_embeddings[
                     input_emb > max_embeddings
                 ]
-            else:
-                input_emb[input_emb < min_embeddings] = min_embeddings.repeat(
-                    (1, input_emb.size(1), 1)
-                )[input_emb < min_embeddings]
-                input_emb[input_emb > max_embeddings] = max_embeddings.repeat(
-                    (1, input_emb.size(1), 1)
-                )[input_emb > max_embeddings]
-
         # Prepare for next iteration
         input_emb = input_emb.to(device).requires_grad_(True)
         output_emb = model(input_emb)[0].to(device)
         if i % save_each == 0:
-            if keep_timing:
-                tic_save = time.time()
+            tic_save = time.time()
             print(f"Iteration: {i}\tDelta: {around(delta.cpu().numpy(), 5)}")
             if not os.path.exists(out_dir):
                 os.makedirs(out_dir)
@@ -306,39 +279,27 @@ def explore(
                     "output_embedding": output_emb.cpu(),
                     "distance": distance.cpu(),
                     "iteration": i,
+                    "time": tic_save - tic,
                     "delta": delta.cpu(),
                 },
                 os.path.join(out_dir, f"{i}.pkl"),
             )
-            if keep_timing:
-                diff = time.time() - tic_save
-        if keep_timing:
-            times["time"] += time.time() - tic
-            if i % save_each == 0:
-                times["time"] -= diff
+            diff = time.time() - tic_save
+
+        times["time"] += time.time() - tic
+        if i % save_each == 0:
+            times["time"] -= diff
 
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-    if keep_timing:
-        save_object(
-            {
-                "input_embedding": input_emb.cpu(),
-                "output_embedding": output_emb.cpu(),
-                "distance": distance.cpu(),
-                "iteration": n_iterations,
-                "time": times["time"],
-                "delta": delta.cpu(),
-            },
-            os.path.join(out_dir, f"{n_iterations}.pkl"),
-        )
-    else:
-        save_object(
-            {
-                "input_embedding": input_emb.cpu(),
-                "output_embedding": output_emb.cpu(),
-                "distance": distance.cpu(),
-                "iteration": n_iterations,
-                "delta": delta.cpu(),
-            },
-            os.path.join(out_dir, f"{n_iterations}.pkl"),
-        )
+    save_object(
+        {
+            "input_embedding": input_emb.cpu(),
+            "output_embedding": output_emb.cpu(),
+            "distance": distance.cpu(),
+            "iteration": n_iterations,
+            "time": times["time"],
+            "delta": delta.cpu(),
+        },
+        os.path.join(out_dir, f"{n_iterations}.pkl"),
+    )
