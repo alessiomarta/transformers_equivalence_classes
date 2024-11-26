@@ -47,10 +47,6 @@ def collect_pkl_res_files(exploration_result_dir: str) -> list:
     return pkl_paths
 
 
-class ExplorationException(Exception):
-    pass
-
-
 def save_object(obj: Any, filename: str) -> None:
     """
     Save a Python object to a file using pickle.
