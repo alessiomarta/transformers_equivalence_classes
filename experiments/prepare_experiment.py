@@ -22,10 +22,62 @@ import os
 import copy
 import random
 import shutil
-from experiments_utils import (
+import torch
+from transformers import logging
+from experiments.experiments_utils import (
     save_json,
     load_json,
+    load_model,
+    load_bert_model,
+    deactivate_dropout_layers,
+    load_raw_images,
+    load_raw_sents,
+    save_object,
 )  # if this is not recognised when run from parent directory, run 'export PYTHONPATH=$(pwd)' in the parent directory before
+
+
+def mask_random_word(sentences, mask_token, classification_token):
+    """
+    Replaces a random word in each sentence with [MASK].
+    If the sentence contains [CLS], the first and last word are excluded from consideration.
+
+    Parameters:
+    ----------
+    sentences : list of str
+        List of sentences.
+
+    Returns:
+    -------
+    list of str
+        List of sentences with one word replaced by [MASK] in each.
+    """
+    masked_sentences = []
+
+    for sentence in sentences:
+        words = sentence.split()  # Split sentence into words
+        num_words = len(words)
+
+        # Determine the range of words to consider
+        if classification_token in sentence:
+            # Exclude the first and last word
+            if num_words > 2:
+                replaceable_indices = range(1, num_words - 1)
+            else:
+                # If there are less than 3 words, no valid replacements are possible
+                replaceable_indices = []
+        else:
+            # All words are replaceable
+            replaceable_indices = range(num_words)
+
+        # If there are valid replaceable words, choose one randomly
+        if replaceable_indices:
+            mask_index = random.choice(replaceable_indices)
+            words[mask_index] = mask_token
+
+        # Rejoin the words into a sentence
+        masked_sentences.append(" ".join(words))
+
+    return masked_sentences
 
 
 def generate_experiment(
@@ -212,6 +264,81 @@ def generate_experiment(
     return file_type, inspected_files
 
 
+def measure_embedding_distribution(
+    data_dir: str, model_path: str, objective: str, device: torch.device
+):
+    if "cifar" in data_dir or "mnist" in data_dir:
+        # Determine if the source directory has subdirectories (hierarchical structure)
+        subdirs = [
+            os.path.join(data_dir, d)
+            for d in os.listdir(data_dir)
+            if os.path.isdir(os.path.join(data_dir, d))
+        ]
+        has_subdirs = bool(subdirs)
+        if has_subdirs:
+            images = []
+            for subdir in subdirs:
+                images.append(load_raw_images(subdir)[0])
+            images = torch.cat(images, dim=0)
+        else:
+            images, _ = load_raw_images(data_dir)
+        images = images.to(device)
+        model_filename = [f for f in os.listdir(model_path) if f.endswith(".pt")]
+        model, _ = load_model(
+            model_path=os.path.join(model_path, model_filename[0]),
+            config_path=os.path.join(model_path, "config.json"),
+            device=device,
+        )
+        deactivate_dropout_layers(model)
+        model = model.to(device)
+        patches_embeddings = model.embedding(model.patcher(images))
+        min_emb = torch.min(patches_embeddings, dim=0).values.unsqueeze(0).detach()
+        max_emb = torch.max(patches_embeddings, dim=0).values.unsqueeze(0).detach()
+
+    else:
+        subdirs = [
+            os.path.join(data_dir, d)
+            for d in os.listdir(data_dir)
+            if os.path.isdir(os.path.join(data_dir, d))
+        ]
+        has_subdirs = bool(subdirs)
+        if has_subdirs:
+            txts = []
+            for subdir in subdirs:
+                txts += load_raw_sents(subdir)[0]
+        else:
+            txts, _ = load_raw_sents(data_dir)
+        logging.set_verbosity_error()
+        bert_tokenizer, bert_model = load_bert_model(
+            model_path, mask_or_cls=objective, device=device
+        )
+        deactivate_dropout_layers(bert_model)
+        bert_model = bert_model.to(device)
+        sentence_embeddings = []
+        # for the sake of obtaining a minimum and maximum embedding, if the objective is mlm, we replace a random word with the [MASK] token
+        if objective == "mlm":
+            txts = mask_random_word(
+                sentences=txts,
+                mask_token=bert_tokenizer.mask_token,
+                classification_token=bert_tokenizer.cls_token,
+            )
+        special_tokens = bert_tokenizer.cls_token not in txts[0]
+        tokenized_input = bert_tokenizer(
+            txts,
+            return_tensors="pt",
+            return_attention_mask=False,
+            add_special_tokens=special_tokens,
+            padding=True,
+        )
+        sentence_embeddings = bert_model.bert.embeddings(
+            **tokenized_input.to(device)
+        ).to(device)
+        min_emb = torch.min(sentence_embeddings, dim=0).values.unsqueeze(0).detach()
+        max_emb = torch.max(sentence_embeddings, dim=0).values.unsqueeze(0).detach()
+
+    return min_emb, max_emb
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
         description="Prepare and configure experimental parameters for running research experiments."
@@ -352,11 +479,23 @@ def parse_arguments():
         help="(Mandatory if --default is not set) Directory path where the configuration and data outputs will be saved.",
     )
 
+    parser.add_argument(
+        "--device",
+        type=str,
+        help="Where to run this experiment",
+    )
+    parser.add_argument("--cap-ex", default=True)
+
     return parser, parser.parse_args()
 
 
 if __name__ == "__main__":
     argparser, args = parse_arguments()
+    if args.device is None:
+        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
+    else:
+        args.device = torch.device(args.device).type
+    dev = torch.device(args.device)
     if not args.default:
         missing_args = []
         for a_name, a in [
@@ -374,6 +513,13 @@ if __name__ == "__main__":
             argparser.error(
                 f"--default option not selected: preparing individual experiment. The following arguments are required: {', '.join(missing_args)}"
             )
+        print("Measuring input space distribution...")
+        min_embeddings, max_embeddings = measure_embedding_distribution(
+            data_dir=args.orig_data_dir,
+            model_path=args.model_path,
+            objective=args.objective,
+            device=dev,
+        )
         experiment_dir = os.path.join(args.exp_dir, args.exp_name)
         # prepare selection of input to perform the experiments with based on specified parameters
         input_type = generate_experiment(
@@ -389,6 +535,14 @@ if __name__ == "__main__":
         else:
             parameters["vocab_tokens"] = [parameters["vocab_tokens"]]
         save_json(os.path.join(experiment_dir, "parameters.json"), parameters)
+        save_object(
+            obj=min_embeddings.cpu(),
+            filename=os.path.join(experiment_dir, "min_distribution.pkl"),
+        )
+        save_object(
+            obj=max_embeddings.cpu(),
+            filename=os.path.join(experiment_dir, "max_distribution.pkl"),
+        )
     else:
         # if not run as individual experiment, prepare every possible experiment given the fixed parameters grid
         if args.test:
@@ -443,6 +597,14 @@ if __name__ == "__main__":
         for exp_name, exp_overrides in EXPERIMENTS.items():
             base_experiment = copy.deepcopy(BASE_EXPERIMENT)
             base_experiment.update(exp_overrides)
+
+            print("Measuring input space distribution...")
+            min_embeddings, max_embeddings = measure_embedding_distribution(
+                data_dir=base_experiment["orig_data_dir"],
+                model_path=base_experiment["model_path"],
+                objective=base_experiment["objective"],
+                device=dev,
+            )
 
             for n_input in INPUT_VALUES:
                 base_experiment["inputs"] = n_input
@@ -506,9 +668,20 @@ if __name__ == "__main__":
                         filtered_experiment = {
                             k: v for k, v in base_experiment.items() if v is not None
                         }
-
                         save_json(
                             os.path.join(experiment_dir, "parameters.json"),
                             filtered_experiment,
+                        )
+                        save_object(
+                            obj=min_embeddings.cpu(),
+                            filename=os.path.join(
+                                experiment_dir, "min_distribution.pkl"
+                            ),
+                        )
+                        save_object(
+                            obj=max_embeddings.cpu(),
+                            filename=os.path.join(
+                                experiment_dir, "max_distribution.pkl"
+                            ),
                         )
     print("Done")
