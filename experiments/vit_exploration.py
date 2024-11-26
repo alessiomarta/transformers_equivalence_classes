@@ -14,11 +14,10 @@ from experiments.experiments_utils import (
     load_raw_images,
     deactivate_dropout_layers,
     load_model,
-    save_object,
     load_json,
-    ExplorationException,
+    load_object,
 )
-from simec.logics import explore
+from simec.logics import explore, ExplorationException
 
 # Configure the logger
 log.basicConfig(
@@ -91,10 +90,13 @@ def main():
         algorithms.append("simexp")
     elif params["algo"] == "simexp":
         algorithms[0] = "simexp"
+
+    min_embs = load_object(os.path.join(args.experiment_path, "min_distribution.pkl"))
+    max_embs = load_object(os.path.join(args.experiment_path, "max_distribution.pkl"))
+
     for algorithm in algorithms:
         print(f"\t{algorithm.upper()} exploration phase")
         for idx, (input_patches, input_embedding) in enumerate(patches_embeddings):
-            # input_patches, input_embedding = input_image
             for r in range(params["repeat"]):
                 print(
                     f"Image: {names[idx]}\t{idx+1}/{len(images)}\tRepetition: {r+1}/{params['repeat']}"
@@ -118,9 +120,10 @@ def main():
                             res_path,
                             f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
                         ),
-                        keep_timing=True,
                         save_each=params["save_each"],
-                        capping=args.experiment_path if args.cap_ex else "",
+                        capping=True,
+                        min_embeddings=min_embs,
+                        max_embeddings=max_embs,
                     )
                 except Exception as e:
                     log.error(

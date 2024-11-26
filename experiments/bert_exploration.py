@@ -10,14 +10,13 @@ import logging as log
 import time
 from transformers import logging
 import torch
-from simec.logics import explore
+from simec.logics import explore, ExplorationException
 from experiments.experiments_utils import (
     load_bert_model,
     deactivate_dropout_layers,
     load_raw_sents,
-    save_object,
     load_json,
-    ExplorationException,
+    load_object,
 )
 
 
@@ -113,6 +112,9 @@ def main():
             .to(device)
         )
 
+    min_embs = load_object(os.path.join(args.experiment_path, "min_distribution.pkl"))
+    max_embs = load_object(os.path.join(args.experiment_path, "max_distribution.pkl"))
+
     algorithms = ["simec"]
     if params["algo"] == "both":
         algorithms.append("simexp")
@@ -151,9 +153,10 @@ def main():
                             res_path,
                             f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
                         ),
-                        keep_timing=True,
                         save_each=params["save_each"],
-                        capping=args.experiment_path if args.cap_ex else "",
+                        capping=True,
+                        min_embeddings=min_embs,
+                        max_embeddings=max_embs,
                     )
                 except Exception as e:
                     log.error(
