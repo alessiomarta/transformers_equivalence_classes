@@ -1,19 +1,21 @@
 """
 Module for Preparing Experimental Configurations
 
-This module is designed to prepare experimental setups for machine learning research. It includes functionalities to 
-organize input data, configure experimental parameters, and manage outputs. The results directory is specified 
-as an argument when running the experiment script.
+This module provides tools to prepare experimental setups for machine learning research.
+It includes functionalities for organizing input data, configuring experimental parameters,
+sampling input files, and measuring embedding distributions from models. It is especially
+useful for handling structured datasets and configuring experiments reproducibly.
 
 Features:
-- Dynamically creates experiment directories and populates them with input data and configurations.
-- Supports sampling input files from structured or flat data directories.
-- Handles multiple experimental setups based on parameter grids or user-specified configurations.
-- Saves experimental configurations in JSON format for reproducibility.
+---------
+- Dynamically creates experimental directories and populates them with input data and configurations.
+- Supports sampling from structured or flat data directories, with configurable sampling behaviors.
+- Manages input data across multiple experimental setups using parameter grids or predefined configurations.
+- Measures embedding distributions for image and text datasets using specified machine learning models.
 
 Usage:
-If running this script from the parent directory and the `experiments_utils` module is not recognized, 
-set the `PYTHONPATH` environment variable to the current working directory:
+------
+To ensure module recognition, set the `PYTHONPATH` environment variable to the working directory:
     export PYTHONPATH=$(pwd)
 """
 
@@ -33,23 +35,29 @@ from experiments.experiments_utils import (
     load_raw_images,
     load_raw_sents,
     save_object,
-)  # if this is not recognised when run from parent directory, run 'export PYTHONPATH=$(pwd)' in the parent directory before
+)
 
 
 def mask_random_word(sentences, mask_token, classification_token):
     """
-    Replaces a random word in each sentence with [MASK].
-    If the sentence contains [CLS], the first and last word are excluded from consideration.
+    Replace a random word in each sentence with a specified mask token.
+
+    If the sentence contains the classification token (e.g., `[CLS]`), the first and last
+    words are excluded from consideration for replacement.
 
     Parameters:
     ----------
     sentences : list of str
-        List of sentences.
+        List of sentences to process.
+    mask_token : str
+        Token to replace the selected word, e.g., `[MASK]`.
+    classification_token : str
+        Special token (e.g., `[CLS]`) that affects replacement rules.
 
     Returns:
     -------
     list of str
-        List of sentences with one word replaced by [MASK] in each.
+        List of sentences with one word replaced by the mask token in each.
     """
     masked_sentences = []
 
@@ -57,134 +65,92 @@ def mask_random_word(sentences, mask_token, classification_token):
         words = sentence.split()  # Split sentence into words
         num_words = len(words)
 
-        # Determine the range of words to consider
+        # Determine the range of words eligible for masking
         if classification_token in sentence:
-            # Exclude the first and last word
-            if num_words > 2:
-                replaceable_indices = range(1, num_words - 1)
-            else:
-                # If there are less than 3 words, no valid replacements are possible
-                replaceable_indices = []
+            replaceable_indices = range(1, num_words - 1) if num_words > 2 else []
         else:
-            # All words are replaceable
             replaceable_indices = range(num_words)
 
-        # If there are valid replaceable words, choose one randomly
+        # Replace a random word if eligible indices exist
         if replaceable_indices:
             mask_index = random.choice(replaceable_indices)
             words[mask_index] = mask_token
 
-        # Rejoin the words into a sentence
         masked_sentences.append(" ".join(words))
 
     return masked_sentences
 
 
-def generate_experiment(
-    input_path: str,
-    exp_dir: str,
-    n_inputs: int,
-    patch_option: str,
-    fixed_inputs: list = None,
-):
+def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_inputs=None):
     """
-    Generate and configure an experimental directory with enhanced sampling behavior.
+    Organize input files and configurations into an experimental directory.
 
-    This function organizes input files into a specified experimental directory,
-    sampling files from the source directory (flat or hierarchical). It supports:
-    - Including a list of fixed input files while ensuring the total sample size matches `n_inputs`.
-    - Replacing sampled files with fixed inputs if necessary.
-    - Returning the file type and a sample of filenames for inspection.
+    Samples input files from the source directory and collects their configurations,
+    preparing a reproducible experimental setup.
 
     Parameters:
     ----------
     input_path : str
-        Path to the directory containing input data. Can be:
-        - Flat: All files in a single directory.
-        - Hierarchical: Subdirectories, each with its configuration and input files.
+        Path to the directory containing input files. Can be:
+        - Flat: All files are in a single directory.
+        - Hierarchical: Contains subdirectories with input files and configurations.
     exp_dir : str
-        Path to the directory where sampled files and the combined configuration JSON will be saved.
+        Path to the directory where the sampled files and configuration JSON will be saved.
     n_inputs : int
-        Number of input files to sample for the experiment.
+        Number of input files to sample.
     patch_option : str
-        Configuration file type to use in each subdirectory:
-        - "target-word" for default config.json.
-        - Other options specify files like config_<patch_option>.json.
+        Specifies the configuration type for subdirectories:
+        - "target-word" for default `config.json`.
+        - Other options specify files like `config_<patch_option>.json`.
     fixed_inputs : list, optional
-        List of fixed input filenames to include in the sample. Default is an empty list.
+        List of specific input files to include in the experiment. Default is None.
 
     Returns:
-    --------
-    tuple
-        - str: File type of the sampled inputs (e.g., "txt", "png").
-        - list: 20% of the sampled file names for inspection.
-
-    Notes:
-    ------
-    - Creates the output directory (`exp_dir`) if it does not exist.
-    - Handles cases where `n_inputs` exceeds available files gracefully.
-    - Ensures that fixed inputs are included in the sample.
-    - Substitutes files from over-represented directories when needed.
+    -------
+    tuple:
+        - str: File type of the sampled inputs (e.g., `txt`, `png`).
+        - list: A sample of filenames (20%) for inspection.
     """
 
-    def collect_config_data(current_folder: str):
+    def collect_config_data(folder):
         """
-        Collect and merge configuration data from a specified folder.
-
-        This function identifies the appropriate configuration file in the given folder
-        based on the `patch_option`, loads its contents, and updates the global configuration
-        dictionary `all_config_data` with the loaded data.
+        Load and merge configuration data from a folder.
 
         Parameters:
         ----------
-        current_folder : str
-            Path to the folder containing the configuration file.
+        folder : str
+            Path to the folder containing configuration files.
         """
-        # Determine the configuration file based on the patch option
-        if patch_option == "target-word":
-            config_path = os.path.join(current_folder, "config.json")
-        else:
-            config_path = os.path.join(current_folder, f"config_{patch_option}.json")
-
-        # Load the configuration data
+        config_path = (
+            os.path.join(folder, "config.json")
+            if patch_option == "target-word"
+            else os.path.join(folder, f"config_{patch_option}.json")
+        )
         config_data = load_json(config_path)
         all_config_data.update(config_data)
 
-    def sample_file(current_folder: str, n_input_in_dir: int):
+    def sample_files(folder, sample_size):
         """
-        Sample files from the given folder and add configuration data.
+        Sample files from a folder and update global sampled files list.
 
         Parameters:
         ----------
-        current_folder : str
-            Directory containing input files and configuration data.
-        n_input_in_dir : int
-            Number of files to sample from this folder.
+        folder : str
+            Directory containing input files to sample.
+        sample_size : int
+            Number of files to sample.
         """
-
-        # Gather all eligible input files in the folder
-        input_files = [
-            os.path.join(current_folder, f)
-            for f in os.listdir(current_folder)
+        files = [
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
             if f.endswith((".txt", ".png", ".jpg", ".jpeg"))
         ]
+        sampled = random.sample(files, min(sample_size, len(files)))
+        all_sampled_files.extend(sampled)
 
-        # Sample files from the directory (up to the number requested)
-        sample_size = min(n_input_in_dir, len(input_files))
-        sampled_files = random.sample(input_files, sample_size)
-
-        # Add sampled files to the global list
-        all_sampled_files.extend(sampled_files)
-
-    # Ensure result directory exists
     if not os.path.exists(exp_dir):
         os.makedirs(exp_dir)
 
-    # Ensure the output directory exists
-    if not os.path.exists(exp_dir):
-        os.makedirs(exp_dir)
-
-    # Determine if the source directory has subdirectories (hierarchical structure)
     subdirs = [
         os.path.join(input_path, d)
         for d in os.listdir(input_path)
@@ -192,313 +158,301 @@ def generate_experiment(
     ]
     has_subdirs = bool(subdirs)
 
-    # Initialize data structures for configuration and sampled files
     combined_config = {}
     all_config_data = {}
     all_sampled_files = []
-
-    # Prepare the fixed input handling
     fixed_inputs = fixed_inputs or []
 
     if has_subdirs:
-        # Collect all needed config
         for subdir in subdirs:
             collect_config_data(subdir)
-        # Adjust the sampling distribution across subdirectories
-        if n_inputs < len(subdirs):
-            # If fewer inputs than subdirectories, randomly select subdirs
-            chosen_subdirs = random.sample(subdirs, n_inputs)
-            files_per_subdir = 1
-        else:
-            # Evenly distribute sampling across all subdirectories
-            chosen_subdirs = subdirs
-            files_per_subdir = n_inputs // len(subdirs)
 
-        # Sample files from the selected subdirectories
+        chosen_subdirs = (
+            random.sample(subdirs, n_inputs) if n_inputs < len(subdirs) else subdirs
+        )
+        files_per_subdir = n_inputs // len(chosen_subdirs)
+
         for subdir in chosen_subdirs:
-            sample_file(subdir, files_per_subdir)
-
+            sample_files(subdir, files_per_subdir)
     else:
-        # Collect all needed config
         collect_config_data(input_path)
-        # Sample files from a flat directory structure
-        sample_file(input_path, n_inputs)
+        sample_files(input_path, n_inputs)
 
-    # Handle fixed inputs: Ensure they are included in the sampled files
     fixed_inputs_to_add = set(fixed_inputs) - set(all_sampled_files)
     for fixed_input in fixed_inputs_to_add:
-        # Find files to substitute with fixed inputs
         parent_dir = os.path.dirname(fixed_input)
-        same_parent_dir = [
-            i for i in all_sampled_files if os.path.dirname(i) == parent_dir
+        same_dir_files = [
+            f for f in all_sampled_files if os.path.dirname(f) == parent_dir
         ]
-        if same_parent_dir:
-            # Substitute a file from the same directory
-            substitute = random.sample(same_parent_dir, 1)[0]
-        else:
-            # Substitute from the most represented directory
-            dirnames = [os.path.dirname(f) for f in all_sampled_files]
-            parent_dirs = {f: dirnames.count(f) for f in dirnames}
-            max_parent = max(parent_dirs, key=parent_dirs.get)
-            substitute = [s for s in all_sampled_files if s.startswith(max_parent)][0]
-        substitute_idx = all_sampled_files.index(substitute)
+        substitute_file = (
+            random.choice(same_dir_files)
+            if same_dir_files
+            else random.choice(all_sampled_files)
+        )
+        substitute_idx = all_sampled_files.index(substitute_file)
         all_sampled_files[substitute_idx] = fixed_input
 
-    # Copy all sampled files to the experiment directory
     for input_file in all_sampled_files:
         shutil.copy(input_file, exp_dir)
         input_name = os.path.basename(input_file)
-        combined_config[input_name] = all_config_data[input_name.split(".")[0]]
+        combined_config[input_name] = all_config_data.get(input_name.split(".")[0], {})
 
-    # Save the combined configuration file
     combined_config_path = os.path.join(exp_dir, "config.json")
     save_json(combined_config_path, combined_config)
 
-    # Return the file type and a 20% subset of the sampled files
     file_type = os.path.splitext(all_sampled_files[0])[1][1:]
     inspected_files = random.sample(
-        all_sampled_files, max(1, (len(all_sampled_files) * 20) // 100)
+        all_sampled_files, max(1, len(all_sampled_files) // 5)
     )
 
-    print(f"Successfully copied {n_inputs} files and created config.json in {exp_dir}")
+    print(f"Created experiment in {exp_dir} with {n_inputs} files.")
     return file_type, inspected_files
 
 
-def measure_embedding_distribution(
-    data_dir: str, model_path: str, objective: str, device: torch.device
-):
-    if "cifar" in data_dir or "mnist" in data_dir:
-        # Determine if the source directory has subdirectories (hierarchical structure)
-        subdirs = [
-            os.path.join(data_dir, d)
+def measure_embedding_distribution(data_dir, model_path, objective, device):
+    """
+    Measure the distribution of embeddings for images or text data.
+
+    For images: Computes the min and max embeddings using a loaded model.
+    For text: Optionally applies masking for MLM objectives, then computes embeddings.
+
+    Parameters:
+    ----------
+    data_dir : str
+        Path to the dataset directory.
+    model_path : str
+        Path to the directory containing the model and configuration.
+    objective : str
+        Objective for the model (e.g., "mlm" for masked language modeling).
+    device : torch.device
+        Device to run the computations (CPU or GPU).
+
+    Returns:
+    -------
+    tuple:
+        - torch.Tensor: Minimum embeddings.
+        - torch.Tensor: Maximum embeddings.
+    """
+    if any(k in data_dir for k in ["cifar", "mnist"]):
+        images = [
+            load_raw_images(os.path.join(data_dir, d))[0]
             for d in os.listdir(data_dir)
             if os.path.isdir(os.path.join(data_dir, d))
         ]
-        has_subdirs = bool(subdirs)
-        if has_subdirs:
-            images = []
-            for subdir in subdirs:
-                images.append(load_raw_images(subdir)[0])
-            images = torch.cat(images, dim=0)
-        else:
-            images, _ = load_raw_images(data_dir)
-        images = images.to(device)
-        model_filename = [f for f in os.listdir(model_path) if f.endswith(".pt")]
+
+        images = (
+            torch.cat(images).to(device)
+            if isinstance(images, list)
+            else images.to(device)
+        )
+
+        model_filename = next(f for f in os.listdir(model_path) if f.endswith(".pt"))
         model, _ = load_model(
-            model_path=os.path.join(model_path, model_filename[0]),
+            model_path=os.path.join(model_path, model_filename),
             config_path=os.path.join(model_path, "config.json"),
             device=device,
         )
         deactivate_dropout_layers(model)
-        model = model.to(device)
-        patches_embeddings = model.embedding(model.patcher(images))
-        min_emb = torch.min(patches_embeddings, dim=0).values.unsqueeze(0).detach()
-        max_emb = torch.max(patches_embeddings, dim=0).values.unsqueeze(0).detach()
+        patches = model.embedding(model.patcher(images))
+        return patches.min(dim=0).values.unsqueeze(0), patches.max(
+            dim=0
+        ).values.unsqueeze(0)
 
+    logging.set_verbosity_error()
+
+    subdirs = [
+        os.path.join(data_dir, d)
+        for d in os.listdir(data_dir)
+        if os.path.isdir(os.path.join(data_dir, d))
+    ]
+    has_subdirs = bool(subdirs)
+    if has_subdirs:
+        txts = []
+        for subdir in subdirs:
+            txts += load_raw_sents(subdir)[0]
     else:
-        subdirs = [
-            os.path.join(data_dir, d)
-            for d in os.listdir(data_dir)
-            if os.path.isdir(os.path.join(data_dir, d))
-        ]
-        has_subdirs = bool(subdirs)
-        if has_subdirs:
-            txts = []
-            for subdir in subdirs:
-                txts += load_raw_sents(subdir)[0]
-        else:
-            txts, _ = load_raw_sents(data_dir)
-        logging.set_verbosity_error()
-        bert_tokenizer, bert_model = load_bert_model(
-            model_path, mask_or_cls=objective, device=device
-        )
-        deactivate_dropout_layers(bert_model)
-        bert_model = bert_model.to(device)
-        sentence_embeddings = []
-        # for the sake of obtaining a minimum and maximum embedding, if the objective is mlm, we replace a random word with the [MASK] token
-        if objective == "mlm":
-            txts = mask_random_word(
-                sentences=txts,
-                mask_token=bert_tokenizer.mask_token,
-                classification_token=bert_tokenizer.cls_token,
-            )
-        special_tokens = bert_tokenizer.cls_token not in txts[0]
-        tokenized_input = bert_tokenizer(
-            txts,
-            return_tensors="pt",
-            return_attention_mask=False,
-            add_special_tokens=special_tokens,
-            padding=True,
-        )
-        sentence_embeddings = bert_model.bert.embeddings(
-            **tokenized_input.to(device)
-        ).to(device)
-        min_emb = torch.min(sentence_embeddings, dim=0).values.unsqueeze(0).detach()
-        max_emb = torch.max(sentence_embeddings, dim=0).values.unsqueeze(0).detach()
+        txts, _ = load_raw_sents(data_dir)
 
-    return min_emb, max_emb
+    bert_tokenizer, bert_model = load_bert_model(
+        model_path, mask_or_cls=objective, device=device
+    )
+    deactivate_dropout_layers(bert_model)
+
+    if objective == "mlm":
+        txts = mask_random_word(
+            sentences=txts,
+            mask_token=bert_tokenizer.mask_token,
+            classification_token=bert_tokenizer.cls_token,
+        )
+    tokenized = bert_tokenizer(
+        txts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        return_attention_mask=False,
+    ).to(device)
+    embeddings = bert_model.bert.embeddings(**tokenized).detach()
+
+    return embeddings.min(dim=0).values.unsqueeze(0), embeddings.max(
+        dim=0
+    ).values.unsqueeze(0)
 
 
 def parse_arguments():
+    """
+    Parse and handle command-line arguments for configuring and running experiments.
+
+    Returns:
+        argparse.ArgumentParser: Argument parser object.
+        Namespace: Parsed arguments.
+    """
     parser = argparse.ArgumentParser(
         description="Prepare and configure experimental parameters for running research experiments."
     )
 
-    # Default experiments
+    # Experiment presets
     parser.add_argument(
         "--default",
         action="store_true",
-        help="If set, generates the default experiments",
+        help="Generate default experiments with predefined settings.",
     )
-
-    # Default test experiments
     parser.add_argument(
         "--test",
         action="store_true",
-        help="If set, generates the default test experiments",
+        help="Generate default test experiments for debugging or small-scale trials.",
     )
 
-    # Experiment name
+    # Experiment configuration
     parser.add_argument(
         "-e",
         "--exp_name",
         type=str,
-        help="(Mandatory if --default is not set) Name of the experiment for organization and identification.",
+        help="Name of the experiment for identification (required if --default is not set).",
     )
-
-    # Algorithm selection
     parser.add_argument(
         "-a",
         "--algo",
         choices=["simec", "simexp", "both"],
         default="both",
-        help="Algorithm to run. Choose 'simec' to run Simec only, 'simexp' to run Simexp only, or omit to run both.",
+        help="Algorithm to run. Options: 'simec', 'simexp', or 'both'. Defaults to 'both'.",
     )
-
-    # Number of iterations
     parser.add_argument(
         "-n",
         "--iterations",
         type=int,
-        help="(Mandatory if --default is not set) Number of iterations to run.",
+        help="Number of iterations to run (required if --default is not set).",
     )
-
-    # Delta multiplier
     parser.add_argument(
         "-d",
         "--delta_mult",
         type=int,
         default=1,
-        help="Multiplier for delta adjustment. Defaults to 1 if unspecified.",
+        help="Delta multiplier for adjustments. Defaults to 1.",
     )
-
-    # Threshold
     parser.add_argument(
         "-t",
         "--threshold",
         type=float,
         default=1e-2,
-        help="Threshold value for the experiment. Defaults to 0.01 if unspecified.",
+        help="Threshold value for experiments. Defaults to 0.01.",
     )
-
-    # Save frequency
     parser.add_argument(
         "-s",
         "--save_each",
         type=int,
         default=1,
-        help="Frequency of saving results. Save after every n iterations, where n is this value. Defaults to 1.",
+        help="Frequency to save results, e.g., every n iterations. Defaults to 1.",
     )
-
-    # Number of inputs per experiment
     parser.add_argument(
         "-i",
         "--inputs",
         type=int,
-        help="(Mandatory if --default is not set) Number of inputs to use in each experiment.",
+        help="Number of inputs per experiment (required if --default is not set).",
     )
-
-    # Repeat experiment per input
     parser.add_argument(
         "-r",
         "--repeat",
         type=int,
         default=1,
-        help="Number of times to repeat the experiment for each input. Defaults to 1 if unspecified.",
+        help="Number of repetitions per input. Defaults to 1.",
     )
-
-    # Number of patches to explore
     parser.add_argument(
         "-p",
         "--patches",
         choices=["all", "one", "q1", "q2", "q3", "target-word"],
-        help="(Mandatory if --default is not set) Number of patches to explore. Options: 'all', 'one', 'q1', 'q2', 'q3', or 'target-word. This latter option is intended for experiments, such as Winobias, where a specific target word is predefined for exploration. The number of tokens will vary based on how the tokenizer segments the target word.",
+        help=(
+            "Patch exploration mode (required if --default is not set). Options: 'all', 'one', 'q1', 'q2', 'q3', or "
+            "'target-word'. The latter is specific to text-based experiments like Winobias."
+        ),
     )
-
-    # Number of vocabulary tokens in percentile
     parser.add_argument(
         "-v",
         "--vocab_tokens",
         type=int,
         choices=range(1, 101),
         default=1,
-        help="Percentage of vocabulary tokens (1-100) to consider for interpreting textual experiments. Mandatory if conducting a textual experiment.",
+        help="Percentage of vocabulary tokens (1-100) for text experiments. Required for text-based experiments.",
     )
 
-    # Original data directory
+    # Data and model paths
     parser.add_argument(
         "-od",
         "--orig_data_dir",
         type=str,
-        help="(Mandatory if --default is not set) Directory path where the original input data is located.",
+        help="Directory containing original input data (required if --default is not set).",
     )
-
-    # Model path
     parser.add_argument(
         "-mp",
         "--model_path",
         type=str,
-        help="(Mandatory if --default is not set) Path to the model directory where the pytorch file is, or name of the Huggingface model. Must contain the model config file.",
+        help="Path to the model directory or Huggingface model name (required if --default is not set).",
     )
-
-    # Model task
-    parser.add_argument(
-        "-o",
-        "--objective",
-        default="cls",
-        choices=["cls", "mlm"],
-        type=str,
-        help="Type of task that the chosen model is supposed to perform. Options: 'cls' (classification), 'mlm' (fill-mask). Defaults to 'cls' in unspecified",
-    )
-
-    # Experiment directory
     parser.add_argument(
         "-ed",
         "--exp_dir",
         type=str,
-        help="(Mandatory if --default is not set) Directory path where the configuration and data outputs will be saved.",
+        help="Directory to save configuration and output data (required if --default is not set).",
+    )
+    parser.add_argument(
+        "-o",
+        "--objective",
+        choices=["cls", "mlm"],
+        default="cls",
+        help="Model task: 'cls' (classification) or 'mlm' (masked language model). Defaults to 'cls'.",
     )
 
+    # Device and other options
     parser.add_argument(
         "--device",
         type=str,
-        help="Where to run this experiment",
+        help="Device for computation (e.g., 'cuda', 'cpu'). Auto-detected if unspecified.",
     )
-    parser.add_argument("--cap-ex", default=True)
+    parser.add_argument(
+        "--cap-ex",
+        action="store_true",
+        default=True,
+        help="Enable or disable capped execution. Defaults to enabled.",
+    )
 
     return parser, parser.parse_args()
 
 
 if __name__ == "__main__":
+    # Parse arguments
     argparser, args = parse_arguments()
+
+    # Determine computation device
     if args.device is None:
         args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
     else:
         args.device = torch.device(args.device).type
+
     dev = torch.device(args.device)
+
     if not args.default:
+        # Validate mandatory arguments for individual experiments
         missing_args = []
-        for a_name, a in [
+        required_args = [
             ("-ed/--exp_dir", args.exp_dir),
             ("-mp/--model_path", args.model_path),
             ("-od/--orig_data_dir", args.orig_data_dir),
@@ -506,13 +460,16 @@ if __name__ == "__main__":
             ("-i/--inputs", args.inputs),
             ("-n/--iterations", args.iterations),
             ("-e/--exp_name", args.exp_name),
-        ]:
-            if a is None:
-                missing_args.append(a_name)
-        if len(missing_args) > 0:
+        ]
+        for name, value in required_args:
+            if value is None:
+                missing_args.append(name)
+
+        if missing_args:
             argparser.error(
                 f"--default option not selected: preparing individual experiment. The following arguments are required: {', '.join(missing_args)}"
             )
+
         print("Measuring input space distribution...")
         min_embeddings, max_embeddings = measure_embedding_distribution(
             data_dir=args.orig_data_dir,
@@ -520,47 +477,52 @@ if __name__ == "__main__":
             objective=args.objective,
             device=dev,
         )
+
+        # Prepare experiment directory and configuration
         experiment_dir = os.path.join(args.exp_dir, args.exp_name)
-        # prepare selection of input to perform the experiments with based on specified parameters
         input_type = generate_experiment(
             input_path=args.orig_data_dir,
             exp_dir=experiment_dir,
             n_inputs=args.inputs,
             patch_option=args.patches,
         )
-        # preparing experiment configuration file, where all parameters will be specified
+
+        # Prepare configuration
         parameters = vars(args)
         if input_type != "txt":
-            del parameters["vocab_tokens"]
+            parameters.pop("vocab_tokens", None)
         else:
             parameters["vocab_tokens"] = [parameters["vocab_tokens"]]
+
         save_json(os.path.join(experiment_dir, "parameters.json"), parameters)
         save_object(
-            obj=min_embeddings.cpu(),
-            filename=os.path.join(experiment_dir, "min_distribution.pkl"),
+            min_embeddings.cpu(), os.path.join(experiment_dir, "min_distribution.pkl")
         )
         save_object(
-            obj=max_embeddings.cpu(),
-            filename=os.path.join(experiment_dir, "max_distribution.pkl"),
+            max_embeddings.cpu(), os.path.join(experiment_dir, "max_distribution.pkl")
         )
     else:
-        # if not run as individual experiment, prepare every possible experiment given the fixed parameters grid
+        # Generate default experiments
+        print("Generating default experiments...")
         if args.test:
             print("Warning: creating experiments with --test option.")
-        # Define a base experiment template
+
+        # Base template for an experiment configuration
         BASE_EXPERIMENT = {
-            "algo": "both",
-            "iterations": 10 if args.test else 20000,
-            "delta_mult": None,
-            "threshold": 0.01,
-            "save_each": 1,
-            "inputs": None,
-            "repeat": None,
-            "patches": None,
-            "objective": "cls",
+            "algo": "both",  # Default algorithm to run: both 'simec' and 'simexp'
+            "iterations": (
+                10 if args.test else 20000
+            ),  # Number of iterations, shorter for test mode
+            "delta_mult": None,  # Multiplier for delta adjustment
+            "threshold": 0.01,  # Default threshold for experiments
+            "save_each": 1,  # Frequency of saving results after iterations
+            "inputs": None,  # Number of inputs per experiment (to be defined later)
+            "repeat": None,  # Number of times to repeat experiments (to be determined dynamically)
+            "patches": None,  # Patch exploration options (set dynamically)
+            "objective": "cls",  # Default model objective: classification
         }
 
-        # Define specific experiments with overrides
+        # Define specific experiments with fixed configurations
         EXPERIMENTS = {
             "mnist": {
                 "exp_name": "mnist",
@@ -576,29 +538,31 @@ if __name__ == "__main__":
                 "exp_name": "hatespeech",
                 "orig_data_dir": "../data/measuring-hate-speech_txts",
                 "model_path": "ctoraman/hate-speech-bert",
-                "vocab_tokens": [1, 5, 10],
+                "vocab_tokens": [1, 5, 10],  # Vocab % for eval
             },
             "winobias": {
                 "exp_name": "winobias",
                 "orig_data_dir": "../data/wino_bias_txts",
                 "model_path": "bert-base-uncased",
-                "patches": "target-word",
-                "objective": "mlm",
-                "vocab_tokens": [1, 5, 10],
+                "patches": "target-word",  # Target specific patches for tokenized target words
+                "objective": "mlm",  # Masked language model objective
+                "vocab_tokens": [1, 5, 10],  # Vocab % for eval
             },
         }
 
-        # Define parameter variations
+        # Define parameter variations to iterate through
         DELTA_MULT_VALUES = [1, 5]
         INPUT_VALUES = [10, 2] if args.test else [200, 20]
         PATCH_OPTIONS = ["all", "one", "q1", "q2", "q3"]
 
-        # Iterate through experiments and generate configurations
+        # Iterate through predefined experiments and generate configurations
         for exp_name, exp_overrides in EXPERIMENTS.items():
+            # Create a copy of the base experiment and override with specific settings
             base_experiment = copy.deepcopy(BASE_EXPERIMENT)
             base_experiment.update(exp_overrides)
 
             print("Measuring input space distribution...")
+            # Compute the embedding distribution based on the original data and model
             min_embeddings, max_embeddings = measure_embedding_distribution(
                 data_dir=base_experiment["orig_data_dir"],
                 model_path=base_experiment["model_path"],
@@ -606,41 +570,41 @@ if __name__ == "__main__":
                 device=dev,
             )
 
+            # Iterate over input configurations
             for n_input in INPUT_VALUES:
                 base_experiment["inputs"] = n_input
-                if n_input in [200, 10]:
-                    base_experiment["repeat"] = 1
-                else:
-                    if args.test:
-                        base_experiment["repeat"] = 5
-                    else:
-                        base_experiment["repeat"] = 10
+                # Define repetition based on input size and test mode
+                base_experiment["repeat"] = (
+                    1 if n_input in [200, 10] else (5 if args.test else 10)
+                )
+                # Initialize variable for fixed sample tracking (test mode)
+                sample = None
 
-                if args.test:
-                    sample = None
-
+                # Iterate over delta multiplier values
                 for delta in DELTA_MULT_VALUES:
                     base_experiment["delta_mult"] = delta
 
-                    # Use specific patches if defined, otherwise use all options
+                    # Define patch exploration options (or use specific ones for targeted experiments)
                     patch_list = (
                         [base_experiment["patches"]]
                         if base_experiment["patches"] == "target-word"
                         else PATCH_OPTIONS
                     )
 
+                    # Iterate over patch options
                     for patch_opt in patch_list:
                         base_experiment["patches"] = patch_opt
 
-                        # Generate a descriptive experiment name
+                        # Construct a descriptive name for the experiment
                         exp_name_full = f"{base_experiment['exp_name']}-{delta}-{n_input}-{patch_opt}"
                         if args.test:
                             exp_name_full = "test/" + exp_name_full
 
                         experiment_dir = os.path.join("experiments_data", exp_name_full)
-                        # Generate experiment and save parameters
+
+                        # Generate experiment inputs and save parameters
                         if args.test:
-                            # If run under test condition, ensure that experiments are done considering at least 20% of the sample fixed to compare results over experiments
+                            # Ensure at least 20% of inputs remain fixed for test comparisons
                             if sample:
                                 generate_experiment(
                                     input_path=base_experiment["orig_data_dir"],
@@ -664,7 +628,7 @@ if __name__ == "__main__":
                                 patch_option=patch_opt,
                             )
 
-                        # Filter out keys with None values
+                        # Filter out parameters with None values for saving
                         filtered_experiment = {
                             k: v for k, v in base_experiment.items() if v is not None
                         }
@@ -684,4 +648,4 @@ if __name__ == "__main__":
                                 experiment_dir, "max_distribution.pkl"
                             ),
                         )
-    print("Done")
+        print("Done")
