@@ -11,14 +11,12 @@ import time
 from transformers import logging
 import torch
 from simec.logics import explore
-from experiments_utils import (
+from experiments.experiments_utils import (
     load_bert_model,
     deactivate_dropout_layers,
     load_raw_sents,
-    load_raw_sent,
     save_object,
     load_json,
-    save_json,
     ExplorationException,
 )
 
@@ -84,36 +82,36 @@ def main():
     if not os.path.exists(res_path):
         os.makedirs(res_path)
 
-    print("\tMeasuring and saving input distribution for capping...")
     sentence_embeddings = []
-    for idx, txt in enumerate(txts):
-        tokenized_input = bert_tokenizer(
-            txt,
-            return_tensors="pt",
-            return_attention_mask=False,
-            add_special_tokens=False if txt.strip().startswith("[CLS]") else True,
-        )
-        # replacing objective token with mask token if objective is mlm
-        if params["objective"] == "mlm":
+    if params["objective"] == "mlm":
+        # in this case, we need to go one by one because we replace token with [MASK]
+        for idx, txt in enumerate(txts):
+            tokenized_input = bert_tokenizer(
+                txt,
+                return_tensors="pt",
+                return_attention_mask=False,
+                add_special_tokens=False if txt.strip().startswith("[CLS]") else True,
+                padding="max_length",
+            )
             tokenized_input["input_ids"][0][
                 [config[names[idx]]["objective"]]
             ] = bert_tokenizer.mask_token_id
-        sentence_embeddings.append(
-            bert_model.bert.embeddings(**tokenized_input.to(device)).to(device)
+            sentence_embeddings.append(
+                bert_model.bert.embeddings(**tokenized_input.to(device)).to(device)
+            )
+    else:  # we can go in parallel
+        tokenized_input = bert_tokenizer(
+            txts,
+            return_tensors="pt",
+            return_attention_mask=False,
+            add_special_tokens=False if txts[0].startswith("[CLS]") else True,
+            padding="max_length",
         )
-    embeddings = torch.concat(
-        [s.clone().permute(0, 2, 1) for s in sentence_embeddings], dim=-1
-    )
-    min_embeddings = torch.min(embeddings, dim=-1).values
-    max_embeddings = torch.max(embeddings, dim=-1).values
-    save_object(
-        obj=min_embeddings.cpu(),
-        filename=os.path.join(res_path, "min_distribution.pkl"),
-    )
-    save_object(
-        obj=max_embeddings.cpu(),
-        filename=os.path.join(res_path, "max_distribution.pkl"),
-    )
+        sentence_embeddings = (
+            bert_model.bert.embeddings(**tokenized_input.to(device))
+            .unsqueeze(1)
+            .to(device)
+        )
 
     algorithms = ["simec"]
     if params["algo"] == "both":
@@ -122,7 +120,7 @@ def main():
         algorithms[0] = "simexp"
     for algorithm in algorithms:
         print(f"\t{algorithm.upper()} exploration phase")
-        for idx in range(len(txts)):
+        for idx, sentence_embedding in enumerate(sentence_embeddings):
             if params["objective"] == "mlm":
                 if (
                     isinstance(config[names[idx]]["objective"], list)
@@ -137,7 +135,7 @@ def main():
                 try:
                     explore(
                         same_equivalence_class=algorithm == "simec",
-                        input_embedding=sentence_embeddings[idx],
+                        input_embedding=sentence_embedding,
                         model=bert_model.bert.encoder,
                         eq_class_emb_ids=(
                             None
@@ -155,7 +153,7 @@ def main():
                         ),
                         keep_timing=True,
                         save_each=params["save_each"],
-                        capping=res_path if args.cap_ex else "",
+                        capping=args.experiment_path if args.cap_ex else "",
                     )
                 except Exception as e:
                     log.error(

@@ -10,13 +10,12 @@ import os
 import logging as log
 import time
 import torch
-from experiments_utils import (
+from experiments.experiments_utils import (
     load_raw_images,
     deactivate_dropout_layers,
     load_model,
     save_object,
     load_json,
-    save_json,
     ExplorationException,
 )
 from simec.logics import explore
@@ -84,22 +83,8 @@ def main():
     if not os.path.exists(res_path):
         os.makedirs(res_path)
 
-    print("\tMeasuring and saving input distribution for capping...")
-    patches_embeddings = []
-    for img in images:
-        input_patches = model.patcher(img.unsqueeze(0))
-        patches_embeddings.append((input_patches, model.embedding(input_patches)))
-    embeddings = torch.stack([el[1] for el in patches_embeddings], dim=-1)
-    min_embeddings = torch.min(embeddings, dim=-1).values
-    max_embeddings = torch.max(embeddings, dim=-1).values
-    save_object(
-        obj=min_embeddings.cpu(),
-        filename=os.path.join(res_path, "min_distribution.pkl"),
-    )
-    save_object(
-        obj=max_embeddings.cpu(),
-        filename=os.path.join(res_path, "max_distribution.pkl"),
-    )
+    input_patches = model.patcher(images)
+    patches_embeddings = zip(input_patches, model.embedding(input_patches).unsqueeze(1))
 
     algorithms = ["simec"]
     if params["algo"] == "both":
@@ -108,8 +93,8 @@ def main():
         algorithms[0] = "simexp"
     for algorithm in algorithms:
         print(f"\t{algorithm.upper()} exploration phase")
-        for idx in range(len(images)):
-            input_patches, input_embedding = patches_embeddings[idx]
+        for idx, (input_patches, input_embedding) in enumerate(patches_embeddings):
+            # input_patches, input_embedding = input_image
             for r in range(params["repeat"]):
                 print(
                     f"Image: {names[idx]}\t{idx+1}/{len(images)}\tRepetition: {r+1}/{params['repeat']}"
@@ -135,7 +120,7 @@ def main():
                         ),
                         keep_timing=True,
                         save_each=params["save_each"],
-                        capping=res_path if args.cap_ex else "",
+                        capping=args.experiment_path if args.cap_ex else "",
                     )
                 except Exception as e:
                     log.error(
