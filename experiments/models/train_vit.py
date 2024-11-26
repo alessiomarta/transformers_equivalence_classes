@@ -8,10 +8,10 @@ from vit import ViTForClassification
 
 CONFIG = {
     "patch_size": 2,
-    "hidden_size": 48,
-    "num_hidden_layers": 4,
-    "num_attention_heads": 4,
-    "intermediate_size": 4 * 48,
+    "hidden_size": 144,
+    "num_hidden_layers": 12,
+    "num_attention_heads": 12,
+    "intermediate_size": 12 * 144,
     "hidden_dropout_prob": 0.01,
     "attention_probs_dropout_prob": 0.01,
     "initializer_range": 0.02,
@@ -50,9 +50,7 @@ def save_experiment(
     save_checkpoint(experiment_name, model, "final", base_dir=base_dir)
 
 
-def save_checkpoint(
-    experiment_name, model, epoch, base_dir="../../mnist_experiments"
-):
+def save_checkpoint(experiment_name, model, epoch, base_dir="../../mnist_experiments"):
     outdir = os.path.join(base_dir, experiment_name)
     os.makedirs(outdir, exist_ok=True)
     cpfile = os.path.join(outdir, f"model_{epoch}.pt")
@@ -128,10 +126,12 @@ class Trainer:
         for batch in trainloader:
             # Move the batch to the device
             images, labels = batch
-            images = images.to(self.device) # SHAPE = batch_size, num_channels, height, width
+            images = images.to(
+                self.device
+            )  # SHAPE = batch_size, num_channels, height, width
             labels = labels.to(self.device)
             # Zero the gradients
-            self.optimizer.zero_grad(set_to_none = True)
+            self.optimizer.zero_grad(set_to_none=True)
             # Calculate the loss
             loss = self.loss_fn(self.model(images)[0], labels)
             # Backpropagate the loss
@@ -174,13 +174,11 @@ def prepare_data(
     train_sample_size=None,
     test_sample_size=None,
     dataset="mnist",
-    device="cpu"
+    device="cpu",
 ):
-    data_dir =f"../../{dataset.lower()}_data"
+    data_dir = f"../../{dataset.lower()}_data"
 
-    transform = transforms.Compose(
-        [transforms.ToTensor()]
-    )
+    transform = transforms.Compose([transforms.ToTensor()])
 
     trainset = getattr(datasets, dataset.upper())(
         root=data_dir,
@@ -195,10 +193,14 @@ def prepare_data(
         trainset = torch.utils.data.Subset(trainset, indices)
 
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+        trainset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
     )
 
-    testset = getattr(datasets, dataset.upper()) (
+    testset = getattr(datasets, dataset.upper())(
         root=data_dir,
         download=True,
         train=False,
@@ -218,7 +220,11 @@ def prepare_data(
         testset = torch.utils.data.Subset(testset, indices)
 
     testloader = torch.utils.data.DataLoader(
-        testset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=True
+        testset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
     )
 
     classes = tuple(range(num_classes))
@@ -237,13 +243,13 @@ def main(args, model_path=None):
     # Load the MNIST dataset
     print("Preparing data ...")
     trainloader, testloader, _ = prepare_data(
-        batch_size=batch_size, dataset=args["datadir"], device = device
+        batch_size=batch_size, dataset=args["datadir"], device=device
     )
     # Create the model, optimizer, loss function and trainer
     print("Creating the model, optimizer, loss function and trainer ...")
-    CONFIG['num_classes'] = num_classes
-    CONFIG['num_channels'] = num_channels
-    CONFIG['image_size'] = image_size
+    CONFIG["num_classes"] = num_classes
+    CONFIG["num_channels"] = num_channels
+    CONFIG["image_size"] = image_size
     model = ViTForClassification(CONFIG)
     if model_path is not None:
         checkpoint = torch.load(model_path)
