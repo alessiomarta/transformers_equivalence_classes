@@ -1,1 +1,1 @@
-python3 train_vit.py --batchsize 64 --epochs 100 --lr 0.01 --device cpu --savemodelevery 100 --expname cifar10_experiment --basedir ../.. --datadir cifar10
+python3 train_vit.py --config cifar-config.json --dataset CIFAR10 --batch_size 64 --epochs 1 --lr 0.01 --save_every 10 --device cuda --exp_name cifar10_experiment_base --base_dir ../../.. 
