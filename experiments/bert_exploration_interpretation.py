@@ -125,6 +125,7 @@ def interpret(
             return_tensors="pt",
             return_attention_mask=False,
             add_special_tokens=False,
+            padding=True,
         )["input_ids"]
         .squeeze()
         .to(device)
@@ -369,6 +370,7 @@ def main():
                     return_tensors="pt",
                     return_attention_mask=False,
                     add_special_tokens=False,
+                    padding=True,
                 ).to(device)
                 # finding token of which to keep the prediction constant
                 keep_constant = 0

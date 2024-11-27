@@ -8,26 +8,28 @@ model behavior better.
 import argparse
 import os
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 from matplotlib.patches import Rectangle
 import torch
+from torchvision.utils import save_image
 from tqdm import tqdm
-from models.vit import PatchDecoder
-from experiments_utils import (
+from experiments.models.vit import PatchDecoder
+from experiments.experiments_utils import (
     load_raw_images,
-    load_raw_image,
     deactivate_dropout_layers,
     load_model,
     load_object,
     save_object,
-    save_json,
     load_json,
+    collect_pkl_res_files,
 )
+
+matplotlib.use("Agg")
 
 
 def interpret(
-    img_filename: tuple,
+    original_image: torch.Tensor,
     model: torch.nn.Module,
     decoder: PatchDecoder,
     input_embedding: torch.Tensor,
@@ -53,7 +55,6 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
-    original_image, _ = load_raw_image(*img_filename)
     width, height = original_image.shape[1:]
     model.eval()
     json_stats = {}
@@ -67,12 +68,12 @@ def interpret(
 
     pred_proba = model.classifier(
         output_embedding[:, 0]
-    )  # prediction from modified embedding at a certain iteration
-    pred = torch.argmax(pred_proba).item()
+    )  # prediction prababilities from modified embedding at a certain iteration
     json_stats["embedding_pred_proba"] = pred_proba.cpu()
-    json_stats["embedding_pred"] = pred
+    json_stats["embedding_pred"] = torch.argmax(
+        pred_proba
+    ).item()  # prediction from modified embedding at a certain iteration
 
-    pred_capped = "exploration-capping"  # just for return values purposes
     input_embedding = input_embedding.detach()
     if capping:
         min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(device)
@@ -84,14 +85,13 @@ def interpret(
         pred_capped_proba = model.classifier(
             model.encoder(input_embedding)[0][:, 0]
         )  # prediction from modified embedding at a certain iteration, when exploring phase does not perform capping at each iteration
-        pred_capped = torch.argmax(pred_capped_proba).item()
         json_stats["capped_embedding_pred_proba"] = pred_capped_proba.cpu()
-        json_stats["capped_embedding_pred"] = pred_capped
+        json_stats["capped_embedding_pred"] = torch.argmax(pred_capped_proba).item()
     else:
         json_stats["capped_embedding_pred_proba"] = (
             None  # this means that the capping has been performed at exploration time
         )
-        json_stats["capped_embedding_pred"] = None
+        json_stats["capped_embedding_pred"] = "exploration-capping"
 
     # select those patches to replace with modified ones
     patch_idx = []
@@ -137,26 +137,36 @@ def interpret(
     modified_image_pred_proba = model(modified_image.unsqueeze(0))[
         0
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
-    modified_image_pred = torch.argmax(modified_image_pred_proba).item()
-    json_stats["modified_image_pred"] = modified_image_pred
-    json_stats["modified_image_pred_probas"] = modified_image_pred_proba.cpu()
-    json_stats["modified_image_pred_proba"] = torch.max(
-        modified_image_pred_proba
-    ).item()  # for now I am keeping this to avoid other analysis scripts to stop working
+    json_stats["modified_image_pred"] = torch.argmax(modified_image_pred_proba).item()
+    json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
     json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
         json_stats["original_image_pred"]
     ].item()  # this is to compare probabilities in case the prediction has changed
 
     fname = os.path.join(
         img_out_dir,
-        f"{iteration}-{pred}-{pred_capped}-{modified_image_pred}.png",
+        f"{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
+    )
+    patches_fname = os.path.join(
+        img_out_dir,
+        f"patches-{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
+    )
+    if not os.path.exists(img_out_dir):
+        os.makedirs(img_out_dir)
+    save_image(
+        modified_image,
+        fname,
+        format="png",
     )
     _, ax = plt.subplots()
-    ax.imshow(
-        modified_image.squeeze().detach().cpu().numpy(),
-        cmap="gray",
-        norm=Normalize(vmin=0, vmax=1),
-    )
+    if modified_image.size(0) == 1:
+        ax.imshow(
+            modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy(),
+            cmap="gray",
+            # norm=Normalize(vmin=0, vmax=1),
+        )
+    else:
+        ax.imshow(modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy())
     for p in patch_idx:
         ax.add_patch(
             Rectangle(
@@ -168,9 +178,8 @@ def interpret(
                 facecolor="none",
             )
         )
-    if not os.path.exists(img_out_dir):
-        os.makedirs(img_out_dir)
-    plt.savefig(fname)
+
+    plt.savefig(patches_fname)
     plt.close()
 
     json_fname = os.path.join(
@@ -178,119 +187,79 @@ def interpret(
         f"{iteration}-stats.pkl",
     )
     save_object(json_stats, json_fname)
-    if capping:
-        return pred_capped, modified_image_pred
-    return pred, modified_image_pred
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pkl-dir", type=str, required=True)
-    parser.add_argument("--img-dir", type=str, required=True)
-    parser.add_argument("--model-path", type=str, required=True)
-    parser.add_argument("--config-path", type=str, required=True)
-    parser.add_argument("--device", type=str)
-    parser.add_argument("--cap-ex", action="store_true")
+    parser.add_argument(
+        "--experiment-path",
+        type=str,
+        required=True,
+        help="Directory containing input data, config.json, and parameters.json. Automatically created with prepare_experiment.py",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        required=True,
+        help="Directory where the exploration output from this experiment is stored.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        help="Where to run this experiment",
+    )
+    parser.add_argument("--cap-ex", default=True)
 
-    args = parser.parse_args()
-    if args.device is None:
-        args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu").type
-    return args
+    arguments = parser.parse_args()
+    if arguments.device is None:
+        arguments.device = torch.device(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        ).type
+    else:
+        arguments.device = torch.device(arguments.device).type
+    return arguments
 
 
 def main():
     args = parse_args()
+    params = load_json(os.path.join(args.experiment_path, "parameters.json"))
+    config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
-
-    sub_dirs_exists = any(
-        [os.path.isdir(os.path.join(args.img_dir, d)) for d in os.listdir(args.img_dir)]
-    )
-    if sub_dirs_exists:
-        all_images, all_names, all_eq_class_patch = {}, {}, {}
-        for subdir in os.listdir(args.img_dir):
-            if os.path.isdir(os.path.join(args.img_dir, subdir)):
-                im, all_names[subdir] = load_raw_images(
-                    os.path.join(args.img_dir, subdir)
-                )
-                all_images[subdir] = im.to(device)
-                config_path = os.path.join(args.img_dir, subdir, "config.json")
-                all_eq_class_patch[subdir] = load_json(config_path)
-    else:
-        images, _ = load_raw_images(args.img_dir)
-        images = images.to(device)
-        config_path = os.path.join(args.img_dir, "config.json")
-        eq_class_patch = load_json(config_path)
-
+    images, names = load_raw_images(args.experiment_path)
+    images = images.to(device)
+    model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(
-        model_path=args.model_path,
-        config_path=args.config_path,
+        model_path=os.path.join(params["model_path"], model_filename[0]),
+        config_path=os.path.join(params["model_path"], "config.json"),
         device=device,
     )
     deactivate_dropout_layers(model)
     model = model.to(device)
-    for res_dir in os.listdir(args.pkl_dir):
-        if res_dir.startswith("sime") and "vit" in res_dir:
-            res_path = os.path.join(args.pkl_dir, res_dir)
-            print(res_dir)
-            if sub_dirs_exists:
-                res_img_names = [
-                    d
-                    for d in os.listdir(res_path)
-                    if os.path.isdir(os.path.join(res_path, d))
-                ]
-                img_name = [
-                    k for k, v in all_names.items() if set(v) == set(res_img_names)
-                ][0]
-                images = all_images[img_name]
-                eq_class_patch = all_eq_class_patch[img_name]
 
-            patches_embeddings = []
-            for img in images:
-                input_patches = model.patcher(img.unsqueeze(0))
-                patches_embeddings.append(
-                    (input_patches, model.embedding(input_patches))
-                )
+    print("\tInterpretation phase")
+    decoder = PatchDecoder(
+        image_size=model.image_size,
+        patch_size=model.embedding.patch_size,
+        model_embedding_layer=model.embedding,
+    ).to(device)
 
-            print("Interpretation phase")
-
-            decoder = PatchDecoder(
-                image_size=model.image_size,
-                patch_size=model.embedding.patch_size,
-                model_embedding_layer=model.embedding,
-            ).to(device)
-
-            for img_dir in os.listdir(res_path):
-                if os.path.isdir(os.path.join(res_path, img_dir)):
-                    results_dir = os.path.join(res_path, img_dir)
-                    predictions = {}
-                    for filename in tqdm(os.listdir(results_dir), desc=img_dir):
-                        if os.path.isfile(
-                            os.path.join(res_path, img_dir, filename)
-                        ) and filename.lower().endswith(".pkl"):
-                            res = load_object(os.path.join(results_dir, filename))
-                            pred, decoded_pred = interpret(
-                                img_filename=(
-                                    (args.img_dir, img_dir)
-                                    if not sub_dirs_exists
-                                    else (os.path.join(args.img_dir, img_name), img_dir)
-                                ),
-                                model=model.to(device),
-                                decoder=decoder,
-                                input_embedding=res["input_embedding"].to(device),
-                                output_embedding=res["output_embedding"].to(device),
-                                iteration=res["iteration"],
-                                eq_class_patch_ids=eq_class_patch[img_dir],
-                                img_out_dir=os.path.join(
-                                    res_path, img_dir, "interpretation"
-                                ),
-                                capping=res_path if args.cap_ex else "",
-                                device=device,
-                            )
-                            predictions[res["iteration"]] = pred == decoded_pred
-                    save_json(
-                        filename=os.path.join(results_dir, "pred-stats.json"),
-                        object_to_save=predictions,
-                    )
+    pkl_results_paths = collect_pkl_res_files(args.results_dir)
+    img_extension = "." + names[0].split(".")[-1]  # to compose the image filename
+    for pkl_path in tqdm(pkl_results_paths, desc=args.results_dir):
+        res = load_object(pkl_path)
+        img_name = pkl_path.split("-")[-2] + img_extension
+        interpret(
+            original_image=images[names.index(img_name)],
+            model=model.to(device),
+            decoder=decoder,
+            input_embedding=res["input_embedding"].to(device),
+            output_embedding=res["output_embedding"].to(device),
+            iteration=res["iteration"],
+            eq_class_patch_ids=config[img_name]["explore"],
+            img_out_dir=os.path.join(os.path.dirname(pkl_path), "interpretation"),
+            capping=args.results_dir if not args.cap_ex else "",
+            device=device,
+        )
 
 
 if __name__ == "__main__":
