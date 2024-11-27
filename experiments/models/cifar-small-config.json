@@ -1,0 +1,18 @@
+{
+    "attention_probs_dropout_prob": 0.1,
+    "encoder_stride": 16,
+    "hidden_act": "gelu",
+    "hidden_dropout_prob": 0.01,
+    "hidden_size": 64,
+    "image_size": 32,
+    "num_classes": 10,
+    "initializer_range": 0.02,
+    "intermediate_size": 512,
+    "layer_norm_eps": 1e-12,
+    "model_type": "vit",
+    "num_attention_heads": 8,
+    "num_channels": 3,
+    "num_hidden_layers": 6,
+    "patch_size": 2,
+    "qkv_bias": true
+  }
