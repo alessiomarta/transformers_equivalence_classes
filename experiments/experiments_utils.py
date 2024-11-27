@@ -359,3 +359,37 @@ def get_allowed_tokens(tokenizer: BertTokenizerFast) -> List[int]:
             # or token.isdigit()
         )
     ]
+
+
+def compute_embedding_boundaries(model: torch.nn.Module):
+    """Computes the embedding minima and maxima for a given model.
+
+    Args:
+        model (torch.nn.Module): Model.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: One-dimensional vectors of theoretical embedding minima and maxima.
+    """
+
+    position_embedding = list(model.embeddings.position_embeddings.parameters())[0]
+    if hasattr(model.embeddings, "word_embeddings"):
+        token_embedding = list(model.embeddings.word_embeddings.parameters())[0]
+    elif hasattr(model.embeddings, "patch_embeddings"):
+        token_embedding = list(model.embeddings.patch_embeddings.parameters())[0]
+    else:
+        raise AttributeError("Model .embeddings layer has neither word_embeddings nor patch_embeddings attributes.")
+
+    # Check that the position embeddings are truly in [-1,1]
+    assert position_embedding.min() >= -1 and position_embedding.max() <= 1
+
+    # The embedding layer computes e_i = \sum_j E_{ij}*x_j , where -1 <= x_j <=2 and only one x_j = 2 at most
+    # So assuming max_j E_{ij} > 0 and min_j E_{ij} < 0 \forall i
+    # --> e_i <= max_j E_{ij} + \sum_k |E_{ik}|   which means taking the maximum twice and all the module of other values in a row once
+    # --> e_i >= min_j E_{ij} - \sum_k |E_{ik}|   which is the same but on the opposite side
+    with torch.no_grad():
+      E_max = token_embedding.max(dim = 0)
+      max_embeddings = E_max.values + token_embedding.abs().sum(dim = 0)
+      E_min = token_embedding.min(dim = 0)
+      min_embeddings = E_min.values - token_embedding.abs().sum(dim = 0)
+
+    return min_embeddings, max_embeddings
