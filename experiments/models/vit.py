@@ -133,6 +133,7 @@ class Embeddings(nn.Module):
         self.patch_embeddings = nn.Linear(
             config["num_channels"] * self.patch_size * self.patch_size,
             config["hidden_size"],
+            bias=False
         )
         # Create a learnable [CLS] token
         # Similar to BERT, the [CLS] token is added to the beginning of the input sequence
