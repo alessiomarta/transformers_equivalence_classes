@@ -377,7 +377,9 @@ def compute_embedding_boundaries(model: torch.nn.Module):
     elif hasattr(model.embeddings, "patch_embeddings"):
         token_embedding = list(model.embeddings.patch_embeddings.parameters())[0]
     else:
-        raise AttributeError("Model .embeddings layer has neither word_embeddings nor patch_embeddings attributes.")
+        raise AttributeError(
+            "Model .embeddings layer has neither word_embeddings nor patch_embeddings attributes."
+        )
 
     # Check that the position embeddings are truly in [-1,1]
     assert position_embedding.min() >= -1 and position_embedding.max() <= 1
@@ -387,9 +389,9 @@ def compute_embedding_boundaries(model: torch.nn.Module):
     # --> e_i <= max_j E_{ij} + \sum_k |E_{ik}|   which means taking the maximum twice and all the module of other values in a row once
     # --> e_i >= min_j E_{ij} - \sum_k |E_{ik}|   which is the same but on the opposite side
     with torch.no_grad():
-      E_max = token_embedding.max(dim = 0)
-      max_embeddings = E_max.values + token_embedding.abs().sum(dim = 0)
-      E_min = token_embedding.min(dim = 0)
-      min_embeddings = E_min.values - token_embedding.abs().sum(dim = 0)
+        E_max = token_embedding.max(dim=0)
+        max_embeddings = E_max.values + token_embedding.abs().sum(dim=0)
+        E_min = token_embedding.min(dim=0)
+        min_embeddings = E_min.values - token_embedding.abs().sum(dim=0)
 
     return min_embeddings, max_embeddings
