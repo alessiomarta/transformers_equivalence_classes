@@ -267,6 +267,8 @@ def load_model(
         checkpoint = torch.load(model_path)
     config = load_config(config_path)
     model = ViTForClassification(config)
+    if len(checkpoint.keys()) > len(model.state_dict().keys()):
+        checkpoint = {k: checkpoint[k] for k, v in model.state_dict().items()}
     model.load_state_dict(checkpoint)
     return model.to(device), config
 
