@@ -289,6 +289,7 @@ def measure_embedding_distribution(data_dir, model_path, objective, device):
         return_tensors="pt",
         padding="max_length",
         return_attention_mask=False,
+        add_special_tokens=False if txts[0].startswith("[CLS]") else True,
     ).to(device)
     embeddings = bert_model.bert.embeddings(**tokenized).detach()
 
