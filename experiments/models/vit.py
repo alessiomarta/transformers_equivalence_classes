@@ -25,12 +25,11 @@ class PatchDecoder(nn.Module):
             self.psudo_inverse_weights = torch.pinverse(
                 model_embedding_layer.patch_embeddings.weight
             )
-            self.bias = model_embedding_layer.patch_embeddings.bias
 
     def forward(self, x):
         if hasattr(self, "psudo_inverse_weights"):
             x = (x - self.position_embeddings)[:, 1:, :]
-            x = (x - self.bias) @ self.psudo_inverse_weights.transpose(1, 0)
+            x = x @ self.psudo_inverse_weights.transpose(1, 0)
             # reverting the operations done by Patcher
             x = self.fold(x.permute(0, 2, 1))
         else:
@@ -133,7 +132,7 @@ class Embeddings(nn.Module):
         self.patch_embeddings = nn.Linear(
             config["num_channels"] * self.patch_size * self.patch_size,
             config["hidden_size"],
-            bias=False
+            bias=False,
         )
         # Create a learnable [CLS] token
         # Similar to BERT, the [CLS] token is added to the beginning of the input sequence
@@ -197,7 +196,7 @@ class MultiHeadAttention(nn.Module):
     def get_attention_map(self):
 
         return self.attention_map
-    
+
     def save_attn_gradients(self, attn_gradients):
 
         self.attn_gradients = attn_gradients
@@ -242,7 +241,7 @@ class MultiHeadAttention(nn.Module):
             attention_probs.register_hook(self.save_attn_gradients)
         attention_probs = self.attn_dropout(attention_probs)
         self.save_attention_map(attention_probs)
-        
+
         # Calculate the attention output
         attention_output = torch.matmul(attention_probs, value)
         # Resize the attention output
@@ -298,9 +297,9 @@ class Block(nn.Module):
     def forward(self, x, output_attentions=False, save_attn_gradients=False):
         # Self-attention
         attention_output, attention_probs = self.attention(
-            self.layernorm_1(x), 
-            output_attentions=output_attentions, 
-            save_attn_gradients = save_attn_gradients
+            self.layernorm_1(x),
+            output_attentions=output_attentions,
+            save_attn_gradients=save_attn_gradients,
         )
         # Skip connection
         x = x + attention_output
@@ -333,9 +332,9 @@ class Encoder(nn.Module):
         all_attentions = []
         for block in self.blocks:
             x, attention_probs = block(
-                x, 
+                x,
                 output_attentions=output_attentions,
-                save_attn_gradients=save_attn_gradients
+                save_attn_gradients=save_attn_gradients,
             )
             if output_attentions:
                 all_attentions.append(attention_probs)
@@ -374,9 +373,9 @@ class ViTForClassification(nn.Module):
         embedding_output = self.embedding(x)
         # Calculate the encoder's output
         encoder_output, all_attentions = self.encoder(
-            embedding_output, 
+            embedding_output,
             output_attentions=output_attentions,
-            save_attn_gradients=save_attn_gradients
+            save_attn_gradients=save_attn_gradients,
         )
         # Calculate the logits, take the [CLS] token's output as features for classification
         logits = self.classifier(encoder_output[:, 0])
