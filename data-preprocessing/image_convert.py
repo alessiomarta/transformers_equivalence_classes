@@ -12,7 +12,7 @@ import sys
 sys.path.append("..")
 sys.path.append("../experiments")
 sys.path.append("../analysis")
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from experiments.experiments_utils import *
 from analysis.vit_attention_exp import *
 
@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
 
     args = parse_args()
+    device = torch.device(args.device)
 
     transform = transforms.Compose([transforms.ToTensor()])
 
@@ -50,7 +51,7 @@ if __name__ == "__main__":
     model, _ = load_model(
         model_path=args.model_path,
         config_path=args.config_path,
-        device=torch.device(args.device),
+        device=device,
     )
 
     testset = getattr(datasets, args.dataset.upper())(
@@ -95,8 +96,8 @@ if __name__ == "__main__":
             print(fname)
 
             # Save image
-            image = X[i] # shape = (colors, height, width)
-            save_image(image, os.path.join(label_dir, fname) + ".png", format = "png")
+            image = X[i]  # shape = (colors, height, width)
+            save_image(image, os.path.join(label_dir, fname) + ".png", format="png")
 
             # Compute and save configs
             V_patches = image.shape[1] // model.patcher.patch_size
@@ -114,7 +115,9 @@ if __name__ == "__main__":
             if x.dim() == 3:
                 x = x.unsqueeze(0)
 
-            transformer_attribution = generate_relevance(model, x).detach()
+            transformer_attribution = generate_relevance(
+                model.to(device), x.to(device)
+            ).detach()
             patches_attribution = (
                 transformer_attribution.reshape((V_patches, -1, H_patches))
                 .cpu()
