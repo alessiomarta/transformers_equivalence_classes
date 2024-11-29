@@ -54,7 +54,7 @@ def generate_relevance(model, input, device, index=None):
 
     one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
     one_hot[0, index] = 1
-    one_hot = torch.from_numpy(one_hot).requires_grad_(True)
+    one_hot = torch.from_numpy(one_hot).requires_grad_(True).to(device)
     one_hot = torch.sum(one_hot * output)
     model.zero_grad(set_to_none=True)
     one_hot.backward(retain_graph=True)
