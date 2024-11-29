@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 import argparse
 import sys
+
 sys.path.append("../")
 from experiments.experiments_utils import *
 
@@ -16,7 +17,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--config-path", type=str, required=True)
-    parser.add_argument("--img-dir", type = str, required = True)
+    parser.add_argument("--img-dir", type=str, required=True)
     parser.add_argument("--device", type=str)
     parser.add_argument("--out-dir", type=str, required=True)
 
@@ -39,13 +40,15 @@ def avg_heads(cam, grad):
     cam = cam.clamp(min=0).mean(dim=0)
     return cam
 
+
 # rule 6 from paper
 def apply_self_attention_rules(R_ss, cam_ss):
     R_ss_addition = torch.matmul(cam_ss, R_ss)
     return R_ss_addition
 
+
 def generate_relevance(model, input, index=None):
-    output = model(input, save_attn_gradients = True)[0]
+    output = model(input, save_attn_gradients=True)[0]
     if index == None:
         index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
@@ -53,7 +56,7 @@ def generate_relevance(model, input, index=None):
     one_hot[0, index] = 1
     one_hot = torch.from_numpy(one_hot).requires_grad_(True)
     one_hot = torch.sum(one_hot * output)
-    model.zero_grad(set_to_none = True)
+    model.zero_grad(set_to_none=True)
     one_hot.backward(retain_graph=True)
 
     num_tokens = model.encoder.blocks[0].attention.get_attention_map().shape[-1]
@@ -101,7 +104,9 @@ def main():
 
         pred = model(img.unsqueeze(0))[0].flatten().cpu().detach().numpy().argmax()
 
-        transformer_attribution = generate_relevance(model, img.unsqueeze(0), index=pred).detach()
+        transformer_attribution = generate_relevance(
+            model, img.unsqueeze(0), index=pred
+        ).detach()
         transformer_attribution = transformer_attribution.reshape(img.shape[:2])
 
         fig = plt.figure(figsize=(8, 4))
@@ -124,9 +129,6 @@ def main():
         plt.subplots_adjust(wspace=0, hspace=0)
         plt.savefig(fname)
         plt.close()
-
-
-
 
 
 if __name__ == "__main__":
