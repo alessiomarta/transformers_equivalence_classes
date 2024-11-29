@@ -376,7 +376,7 @@ def compute_embedding_boundaries(model: torch.nn.Module):
     if isinstance(model, ViTForClassification):
         if hasattr(model.embedding, "patch_embeddings"):
             position_embedding = model.embedding.position_embeddings
-            token_embedding = model.embedding.patch_embeddings.weight
+            token_embedding = model.embedding.patch_embeddings.weight.permute(1, 0)
         else:
             raise AttributeError(
                 "Model .embeddings layer hasn't patch_embeddings attributes."
@@ -390,7 +390,7 @@ def compute_embedding_boundaries(model: torch.nn.Module):
                 "Model .embeddings layer hasn't word_embeddings attributes."
             )
         # Check that the position embeddings are truly in [-1,1]
-        assert position_embedding.min() >= -1 and position_embedding.max() <= 1
+    assert position_embedding.min() >= -1 and position_embedding.max() <= 1
 
     # The embedding layer computes e_i = \sum_j E_{ij}*x_j , where -1 <= x_j <=2 and only one x_j = 2 at most
     # So assuming max_j E_{ij} > 0 and min_j E_{ij} < 0 \forall i
