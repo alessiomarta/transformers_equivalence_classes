@@ -116,7 +116,7 @@ if __name__ == "__main__":
                 x = x.unsqueeze(0)
 
             transformer_attribution = generate_relevance(
-                model.to(device), x.to(device)
+                model.to(device), x.to(device), device=device
             ).detach()
             patches_attribution = (
                 transformer_attribution.reshape((V_patches, -1, H_patches))

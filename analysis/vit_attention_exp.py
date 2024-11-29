@@ -47,8 +47,8 @@ def apply_self_attention_rules(R_ss, cam_ss):
     return R_ss_addition
 
 
-def generate_relevance(model, input, index=None):
-    output = model(input, save_attn_gradients=True)[0]
+def generate_relevance(model, input, device, index=None):
+    output = model(input, save_attn_gradients=True)[0].to(device)
     if index == None:
         index = np.argmax(output.cpu().data.numpy(), axis=-1)
 
