@@ -34,8 +34,8 @@ def parse_args():
 
 # rule 5 from paper
 def avg_heads(cam, grad):
-    cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1])
-    grad = grad.reshape(-1, grad.shape[-2], grad.shape[-1])
+    cam = cam.reshape(-1, cam.shape[-2], cam.shape[-1]).to(cam.device)
+    grad = grad.reshape(-1, grad.shape[-2], grad.shape[-1]).to(grad.device)
     cam = grad * cam
     cam = cam.clamp(min=0).mean(dim=0)
     return cam
@@ -60,10 +60,10 @@ def generate_relevance(model, input, device, index=None):
     one_hot.backward(retain_graph=True)
 
     num_tokens = model.encoder.blocks[0].attention.get_attention_map().shape[-1]
-    R = torch.eye(num_tokens, num_tokens)
+    R = torch.eye(num_tokens, num_tokens).to(device)
     for blk in model.encoder.blocks:
-        grad = blk.attention.get_attn_gradients()
-        cam = blk.attention.get_attention_map()
+        grad = blk.attention.get_attn_gradients().to(device)
+        cam = blk.attention.get_attention_map().to(device)
         cam = avg_heads(cam, grad)
         R += apply_self_attention_rules(R, cam)
         del grad
@@ -105,7 +105,7 @@ def main():
         pred = model(img.unsqueeze(0))[0].flatten().cpu().detach().numpy().argmax()
 
         transformer_attribution = generate_relevance(
-            model, img.unsqueeze(0), index=pred
+            model, img.unsqueeze(0), index=pred, device=device
         ).detach()
         transformer_attribution = transformer_attribution.reshape(img.shape[:2])
 
