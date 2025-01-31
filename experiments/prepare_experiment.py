@@ -35,6 +35,7 @@ from experiments.experiments_utils import (
     load_raw_images,
     load_raw_sents,
     save_object,
+    compute_embedding_boundaries,
 )
 
 
@@ -429,6 +430,13 @@ def parse_arguments():
     )
     parser.add_argument(
         "--cap-ex",
+        action="store_true",
+        default=True,
+        help="Enable or disable capped execution. Defaults to enabled.",
+    )
+
+    parser.add_argument(
+        "--theoretical-min-max",  # TODO: implementare la scelta dei min max teorici (quelli di davide)
         action="store_true",
         default=True,
         help="Enable or disable capped execution. Defaults to enabled.",
