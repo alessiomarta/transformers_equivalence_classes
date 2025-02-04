@@ -386,10 +386,10 @@ def compute_embedding_boundaries(
                 "Model .embeddings layer hasn't patch_embeddings attribute."
             )
     else:
-        if hasattr(model.embeddings, "word_embeddings"):
-            position_embedding = model.embeddings.position_embeddings.weight
+        if hasattr(model.bert.embeddings, "word_embeddings"):
+            position_embedding = model.bert.embeddings.position_embeddings.weight
             # shape = (max_length, hidden_size)
-            token_embedding = model.embeddings.word_embeddings.weight
+            token_embedding = model.bert.embeddings.word_embeddings.weight
             # shape = (vocab_size, hidden_size)
         else:
             raise AttributeError(
