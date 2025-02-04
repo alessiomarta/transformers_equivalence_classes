@@ -363,7 +363,9 @@ def get_allowed_tokens(tokenizer: BertTokenizerFast) -> List[int]:
     ]
 
 
-def compute_embedding_boundaries(model: torch.nn.Module, means: List[float] = [0.], sds: List[float] = [1.]):
+def compute_embedding_boundaries(
+    model: torch.nn.Module, means: List[float] = [0.0], sds: List[float] = [1.0]
+):
     """Computes the embedding minima and maxima for a given model.
 
     Args:
@@ -397,8 +399,8 @@ def compute_embedding_boundaries(model: torch.nn.Module, means: List[float] = [0
     if position_embedding.dim() > 2:
         position_embedding = position_embedding.squeeze(0)
 
-    max_pos_embedding = position_embedding.max(dim = 0).values
-    min_pos_embedding = position_embedding.min(dim = 0).values
+    max_pos_embedding = position_embedding.max(dim=0).values
+    min_pos_embedding = position_embedding.min(dim=0).values
 
     positive_embeddings = torch.where(token_embedding >= 0, token_embedding, 0)
     negative_embeddings = torch.where(token_embedding < 0, token_embedding, 0)
@@ -409,7 +411,15 @@ def compute_embedding_boundaries(model: torch.nn.Module, means: List[float] = [0
     # The embedding layer computes e_i = \sum_j E_{ij}*x_j + p^{(k)}_i, where E is the embedding matrix, x_j are the features of the input, and p_i are those of the positional encoding
     # --> e_i <= \sum_{j: E_{ij} >= 0} E_{ij}*max_l(x_l) + \sum_{j: E_{ij} < 0} E_{ij}*min_l(x_l) + max_k (p^{(k)}_i)
     # --> e_i >= \sum_{j: E_{ij} >= 0} E_{ij}*min_l(x_l) + \sum_{j: E_{ij} < 0} E_{ij}*max_l(x_l) + min_k (p^{(k)}_i)
-    max_embeddings = max_input*positive_embeddings.sum(dim = 0) + min_input*negative_embeddings.sum(dim = 0) + max_pos_embedding
-    min_embeddings = min_input*positive_embeddings.sum(dim = 0) + max_input*negative_embeddings.sum(dim = 0) + min_pos_embedding
+    max_embeddings = (
+        max_input * positive_embeddings.sum(dim=0)
+        + min_input * negative_embeddings.sum(dim=0)
+        + max_pos_embedding
+    )
+    min_embeddings = (
+        min_input * positive_embeddings.sum(dim=0)
+        + max_input * negative_embeddings.sum(dim=0)
+        + min_pos_embedding
+    )
 
     return min_embeddings, max_embeddings

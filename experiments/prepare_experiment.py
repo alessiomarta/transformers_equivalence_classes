@@ -210,7 +210,9 @@ def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_input
     return file_type, inspected_files
 
 
-def measure_embedding_distribution(data_dir, model_path, objective, device):
+def measure_embedding_distribution(
+    data_dir, model, device, tokenizer=None, objective=None
+):
     """
     Measure the distribution of embeddings for images or text data.
 
@@ -221,12 +223,14 @@ def measure_embedding_distribution(data_dir, model_path, objective, device):
     ----------
     data_dir : str
         Path to the dataset directory.
-    model_path : str
-        Path to the directory containing the model and configuration.
-    objective : str
-        Objective for the model (e.g., "mlm" for masked language modeling).
+    model : torch.nn.Module
+        The model used to compute embeddings.
     device : torch.device
         Device to run the computations (CPU or GPU).
+    tokenizer : transformers.PreTrainedTokenizer, optional
+        Tokenizer for text data. Required if processing text data.
+    objective : str, optional
+        Objective for the model (e.g., "mlm" for masked language modeling). Required if processing text data.
 
     Returns:
     -------
@@ -247,13 +251,6 @@ def measure_embedding_distribution(data_dir, model_path, objective, device):
             else images.to(device)
         )
 
-        model_filename = next(f for f in os.listdir(model_path) if f.endswith(".pt"))
-        model, _ = load_model(
-            model_path=os.path.join(model_path, model_filename),
-            config_path=os.path.join(model_path, "config.json"),
-            device=device,
-        )
-        deactivate_dropout_layers(model)
         patches = model.embedding(model.patcher(images))
         return patches.min(dim=0).values.unsqueeze(0), patches.max(
             dim=0
@@ -274,25 +271,20 @@ def measure_embedding_distribution(data_dir, model_path, objective, device):
     else:
         txts, _ = load_raw_sents(data_dir)
 
-    bert_tokenizer, bert_model = load_bert_model(
-        model_path, mask_or_cls=objective, device=device
-    )
-    deactivate_dropout_layers(bert_model)
-
     if objective == "mlm":
         txts = mask_random_word(
             sentences=txts,
-            mask_token=bert_tokenizer.mask_token,
-            classification_token=bert_tokenizer.cls_token,
+            mask_token=tokenizer.mask_token,
+            classification_token=tokenizer.cls_token,
         )
-    tokenized = bert_tokenizer(
+    tokenized = tokenizer(
         txts,
         return_tensors="pt",
         padding="max_length",
         return_attention_mask=False,
         add_special_tokens=False if txts[0].startswith("[CLS]") else True,
     ).to(device)
-    embeddings = bert_model.bert.embeddings(**tokenized).detach()
+    embeddings = model.bert.embeddings(**tokenized).detach()
 
     return embeddings.min(dim=0).values.unsqueeze(0), embeddings.max(
         dim=0
@@ -436,10 +428,10 @@ def parse_arguments():
     )
 
     parser.add_argument(
-        "--theoretical-min-max",  # TODO: implementare la scelta dei min max teorici (quelli di davide)
+        "--theoretical-min-max",
         action="store_true",
         default=True,
-        help="Enable or disable capped execution. Defaults to enabled.",
+        help="If set, the experiments will use min and max values for capping embeddings taken from the used model. If not set, the experiments will use min and max values computed on experimentd data.",
     )
 
     return parser, parser.parse_args()
@@ -478,13 +470,57 @@ if __name__ == "__main__":
                 f"--default option not selected: preparing individual experiment. The following arguments are required: {', '.join(missing_args)}"
             )
 
-        print("Measuring input space distribution...")
-        min_embeddings, max_embeddings = measure_embedding_distribution(
-            data_dir=args.orig_data_dir,
-            model_path=args.model_path,
-            objective=args.objective,
-            device=dev,
-        )
+        if (
+            not any(k in args.orig_data_dir for k in ["cifar", "mnist"])
+            and args.objective is None
+        ):
+            argparser.error(
+                "You have to specify the objective for BERT experiments [mlm or cls]. The following argument is required: --objective."
+            )
+
+        if any(k in args.orig_data_dir for k in ["cifar", "mnist"]):
+            model_filename = next(
+                f for f in os.listdir(args.model_path) if f.endswith(".pt")
+            )
+            mdl, _ = load_model(
+                model_path=os.path.join(args.model_path, model_filename),
+                config_path=os.path.join(args.model_path, "config.json"),
+                device=dev,
+            )
+            deactivate_dropout_layers(mdl)
+            tkn = None
+            if "cifar" in args.orig_data_dir:
+                means = [0.49139968, 0.48215827, 0.44653124]
+                sds = [0.24703233, 0.24348505, 0.26158768]
+            else:
+                means = [
+                    0.1307,
+                ]
+                sds = [
+                    0.3081,
+                ]
+        else:
+            tkn, mdl = load_bert_model(
+                args.model_path, mask_or_cls=args.objective, device=dev
+            )
+            deactivate_dropout_layers(mdl)
+            means = [0.0]
+            sds = [1.0]
+
+        if not args.theoretical_min_max:
+            print("Measuring input space distribution...")
+            min_embeddings, max_embeddings = measure_embedding_distribution(
+                data_dir=args.orig_data_dir,
+                model=mdl,
+                objective=args.objective or None,
+                tokenizer=tkn,
+                device=dev,
+            )
+        else:
+            print("Using theoretical min and max values for capping embeddings.")
+            min_embeddings, max_embeddings = compute_embedding_boundaries(
+                model=mdl, means=means, sds=sds
+            )
 
         # Prepare experiment directory and configuration
         experiment_dir = os.path.join(args.exp_dir, args.exp_name)
@@ -569,14 +605,57 @@ if __name__ == "__main__":
             base_experiment = copy.deepcopy(BASE_EXPERIMENT)
             base_experiment.update(exp_overrides)
 
-            print("Measuring input space distribution...")
-            # Compute the embedding distribution based on the original data and model
-            min_embeddings, max_embeddings = measure_embedding_distribution(
-                data_dir=base_experiment["orig_data_dir"],
-                model_path=base_experiment["model_path"],
-                objective=base_experiment["objective"],
-                device=dev,
-            )
+            if any(k in base_experiment["exp_name"] for k in ["cifar", "mnist"]):
+                model_filename = next(
+                    f
+                    for f in os.listdir(base_experiment["model_path"])
+                    if f.endswith(".pt")
+                )
+                mdl, _ = load_model(
+                    model_path=os.path.join(
+                        base_experiment["model_path"], model_filename
+                    ),
+                    config_path=os.path.join(
+                        base_experiment["model_path"], "config.json"
+                    ),
+                    device=dev,
+                )
+                deactivate_dropout_layers(mdl)
+                tkn = None
+                if "cifar" == base_experiment["exp_name"]:
+                    means = [0.49139968, 0.48215827, 0.44653124]
+                    sds = [0.24703233, 0.24348505, 0.26158768]
+                else:
+                    means = [
+                        0.1307,
+                    ]
+                    sds = [
+                        0.3081,
+                    ]
+            else:
+                tkn, mdl = load_bert_model(
+                    base_experiment["model_path"],
+                    mask_or_cls=base_experiment["objective"],
+                    device=dev,
+                )
+                deactivate_dropout_layers(mdl)
+                means = [0.0]
+                sds = [1.0]
+
+            if not args.theoretical_min_max:
+                print("Measuring input space distribution...")
+                min_embeddings, max_embeddings = measure_embedding_distribution(
+                    data_dir=args.orig_data_dir,
+                    model=mdl,
+                    objective=args.objective or None,
+                    tokenizer=tkn,
+                    device=dev,
+                )
+            else:
+                print("Using theoretical min and max values for capping embeddings.")
+                min_embeddings, max_embeddings = compute_embedding_boundaries(
+                    model=mdl, means=means, sds=sds
+                )
 
             # Iterate over input configurations
             for n_input in INPUT_VALUES:
