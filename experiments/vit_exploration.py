@@ -83,7 +83,9 @@ def main():
         os.makedirs(res_path)
 
     input_patches = model.patcher(images)
-    patches_embeddings = zip(input_patches, model.embedding(input_patches).unsqueeze(1))
+    patches_embeddings = list(
+        zip(input_patches, model.embedding(input_patches).unsqueeze(1))
+    )
 
     algorithms = ["simec"]
     if params["algo"] == "both":
