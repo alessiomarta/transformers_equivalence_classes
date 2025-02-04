@@ -1,11 +1,7 @@
 #!/bin/bash
 
 cd ..
-for dir in experiments_data/test/*; do
+for dir in experiments_data/test/*cifar*; do
     echo $dir
-    if [[ "$dir" == *"cifar"* ]]; then
-        python experiments/vit_exploration.py --experiment-path $dir --out-dir ../res
-    
-    fi
-    
+    python experiments/vit_exploration.py --experiment-path $dir --out-dir ../res
 done
