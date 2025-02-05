@@ -3,6 +3,11 @@ A module designed for exploration of feature importance in Vision Transformer (V
 This includes functionality for interpreting and visualizing how specific patches of an image
 affect the model's predictions, and facilitates the exploration of input space to understand
 model behavior better.
+
+Example usage:
+    To run this script, use the following command:
+    
+    python vit_exploration_interpretation.py --experiment-path /path/to/experiment --results-dir /path/to/results --device cuda
 """
 
 import argparse
@@ -100,7 +105,7 @@ def interpret(
             patch_idx.append(
                 (
                     np.array(
-                        np.unravel_index(
+                        np.unravel_index(  # TODO sistemare value error index -1 is out of bounds for array with size 256 per immagini dove non tutte le patch cambiano (non "all")
                             p - 1,
                             (
                                 width // model.embedding.patch_size,
@@ -119,7 +124,11 @@ def interpret(
                     mod_pixels[1].append(p[1] + j)
 
         # embeddings->image
-        decoded_image = decoder(input_embedding.to(device)).squeeze()
+        decoded_image = decoder(
+            input_embedding.to(device)
+        ).squeeze()  # TODO trasformare in interi (noto che il decoder manda dei float, che sembrano comunque validi dato che no superano i bound 0-255)
+        # TODO verificare comunque i bound in uscita dal decoder, ho visto dei 271...
+        # TODO speriamo di risolvere le immagini in bianco
 
         # replace patches in original image with those in modified image
         modified_image = original_image.clone().to(device)
