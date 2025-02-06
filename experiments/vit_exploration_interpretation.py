@@ -124,16 +124,16 @@ def interpret(
                     mod_pixels[1].append(p[1] + j)
 
         # embeddings->image
-        decoded_image = decoder(
-            input_embedding.to(device)
-        ).squeeze()  # TODO trasformare in interi (noto che il decoder manda dei float, che sembrano comunque validi dato che no superano i bound 0-255)
+        decoded_image = decoder(input_embedding.to(device))
+
+        # TODO da vedere effettivamente la distribuzione dei valori decodificati
         # TODO verificare comunque i bound in uscita dal decoder, ho visto dei 271...
         # TODO speriamo di risolvere le immagini in bianco
 
         # replace patches in original image with those in modified image
         modified_image = original_image.clone().to(device)
         modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
-            mod_pixels[1], mod_pixels[0]
+            :, :, mod_pixels[1], mod_pixels[0]
         ]
         json_stats["modified_patches"] = modified_image[
             :, mod_pixels[1], mod_pixels[0]
@@ -146,6 +146,10 @@ def interpret(
     modified_image_pred_proba = model(modified_image.unsqueeze(0))[
         0
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
+
+    modified_image = (modified_image - modified_image.min()) / (
+        modified_image.max() - modified_image.min()
+    )
     json_stats["modified_image_pred"] = torch.argmax(modified_image_pred_proba).item()
     json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
     json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
