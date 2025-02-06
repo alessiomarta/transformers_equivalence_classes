@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Define the base paths
-experiment_base_path="/Users/lizzy/research/input-space-inspection/transformers_equivalence_classes/experiments_data/test"
-results_base_path="/Users/lizzy/research/input-space-inspection/res"
+experiment_base_path="experiments_data/test"
+results_base_path="../res"
 
 # Find the experiment folder name
 experiment_folder=$(basename $(find $results_base_path -type d -name "*2025*" | head -n 1))
