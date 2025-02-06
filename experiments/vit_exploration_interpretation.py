@@ -106,7 +106,7 @@ def interpret(
                 (
                     np.array(
                         np.unravel_index(  # TODO sistemare value error index -1 is out of bounds for array with size 256 per immagini dove non tutte le patch cambiano (non "all")
-                            p - 1,
+                            p,  # -1 ?
                             (
                                 width // model.embedding.patch_size,
                                 height // model.embedding.patch_size,
