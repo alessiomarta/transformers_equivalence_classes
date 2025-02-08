@@ -12,6 +12,7 @@ Example usage:
 
 import argparse
 import os
+import logging as log
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -31,6 +32,19 @@ from experiments.experiments_utils import (
 )
 
 matplotlib.use("Agg")
+
+
+class InterpretationException(Exception):
+    pass
+
+
+# Configure the logger
+log.basicConfig(
+    filename="error_log.txt",
+    filemode="a",
+    level=log.ERROR,
+    format="\n\n%(asctime)s - %(levelname)s - %(message)s",
+)
 
 
 def interpret(
@@ -261,19 +275,37 @@ def main():
     for pkl_path in tqdm(pkl_results_paths, desc=args.results_dir):
         res = load_object(pkl_path)
         img_name = pkl_path.split("-")[-2] + img_extension
-        interpret(
-            original_image=images[names.index(img_name)],
-            model=model.to(device),
-            decoder=decoder,
-            input_embedding=res["input_embedding"].to(device),
-            output_embedding=res["output_embedding"].to(device),
-            iteration=res["iteration"],
-            eq_class_patch_ids=config[img_name]["explore"],
-            img_out_dir=os.path.join(os.path.dirname(pkl_path), "interpretation"),
-            capping=args.results_dir if not args.cap_ex else "",
-            device=device,
-        )
+        try:
+            interpret(
+                original_image=images[names.index(img_name)],
+                model=model.to(device),
+                decoder=decoder,
+                input_embedding=res["input_embedding"].to(device),
+                output_embedding=res["output_embedding"].to(device),
+                iteration=res["iteration"],
+                eq_class_patch_ids=config[img_name]["explore"],
+                img_out_dir=os.path.join(os.path.dirname(pkl_path), "interpretation"),
+                capping=args.results_dir if not args.cap_ex else "",
+                device=device,
+            )
+        except Exception as e:
+            log.error(
+                "Unhandled exception during intepretation:\nContext:\n"
+                "experiment: %s\nmodel: %s\nimage: %s\nparams: %d\nError: %s",
+                args.experiment_path,
+                params["model_path"],
+                img_name,
+                params,
+                e,
+                exc_info=True,
+            )
+            raise InterpretationException from e
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        if not isinstance(e, InterpretationException):
+            log.error("An error occurred: %s", e, exc_info=True)
+        raise
