@@ -50,8 +50,8 @@ log.basicConfig(
 
 def denormalize(img, mean, std):
     """Undo normalization to convert back to [0,1](?) range"""
-    mean = torch.tensor(mean).view(-1, 1, 1)  # Reshape for broadcasting
-    std = torch.tensor(std).view(-1, 1, 1)
+    mean = mean.view(-1, 1, 1)  # Reshape for broadcasting
+    std = std.view(-1, 1, 1)
     img = img * std + mean  # Reverse normalization
     return img
 
@@ -173,7 +173,9 @@ def interpret(
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
 
     modified_image = denormalize(
-        modified_image.to(device), std=sds.to(device), mean=means.to(device)
+        modified_image.to(device),
+        std=torch.tensor(sds).to(device),
+        mean=torch.tensor(means).to(device),
     )
     json_stats["modified_image_pred"] = torch.argmax(modified_image_pred_proba).item()
     json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
