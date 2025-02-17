@@ -262,8 +262,8 @@ def main():
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
     images, names = load_and_transform_raw_images(args.experiment_path)
-    means = CIFAR_MEAN if "cifar" in params[orig_data_dir] else MNIST_MEAN
-    sds = CIFAR_STD if "cifar" in params[orig_data_dir] else MNIST_STD
+    means = CIFAR_MEAN if "cifar" in params["orig_data_dir"] else MNIST_MEAN
+    sds = CIFAR_STD if "cifar" in params["orig_data_dir"] else MNIST_STD
     images = images.to(device)
     model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(
