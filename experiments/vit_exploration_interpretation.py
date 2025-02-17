@@ -30,6 +30,7 @@ from experiments.experiments_utils import (
     load_json,
     collect_pkl_res_files,
 )
+from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 matplotlib.use("Agg")
 
@@ -47,6 +48,14 @@ log.basicConfig(
 )
 
 
+def denormalize(img, mean, std):
+    """Undo normalization to convert back to [0,1](?) range"""
+    mean = torch.tensor(mean).view(-1, 1, 1)  # Reshape for broadcasting
+    std = torch.tensor(std).view(-1, 1, 1)
+    img = img * std + mean  # Reverse normalization
+    return img
+
+
 def interpret(
     original_image: torch.Tensor,
     model: torch.nn.Module,
@@ -56,6 +65,8 @@ def interpret(
     iteration: int,
     eq_class_patch_ids: list,
     device: torch.device,
+    means: list,
+    sds: list,
     img_out_dir: str = ".",
     capping: str = "",
 ) -> None:
@@ -161,9 +172,7 @@ def interpret(
         0
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
 
-    modified_image = (modified_image - modified_image.min()) / (
-        modified_image.max() - modified_image.min()
-    )
+    modified_image = denormalize(modified_image, std=sds, mean=means)
     json_stats["modified_image_pred"] = torch.argmax(modified_image_pred_proba).item()
     json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
     json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
@@ -253,6 +262,8 @@ def main():
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
     images, names = load_and_transform_raw_images(args.experiment_path)
+    means = CIFAR_MEAN if "cifar" in params[orig_data_dir] else MNIST_MEAN
+    sds = CIFAR_STD if "cifar" in params[orig_data_dir] else MNIST_STD
     images = images.to(device)
     model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(
@@ -287,6 +298,8 @@ def main():
                 img_out_dir=os.path.join(os.path.dirname(pkl_path), "interpretation"),
                 capping=args.results_dir if not args.cap_ex else "",
                 device=device,
+                means=means,
+                sds=sds,
             )
         except Exception as e:
             log.error(
