@@ -32,11 +32,12 @@ from experiments.experiments_utils import (
     load_model,
     load_bert_model,
     deactivate_dropout_layers,
-    load_raw_images,
+    load_and_transform_raw_images,
     load_raw_sents,
     save_object,
     compute_embedding_boundaries,
 )
+from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 
 def mask_random_word(sentences, mask_token, classification_token):
@@ -240,7 +241,7 @@ def measure_embedding_distribution(
     """
     if any(k in data_dir for k in ["cifar", "mnist"]):
         images = [
-            load_raw_images(os.path.join(data_dir, d))[0]
+            load_and_transform_raw_images(os.path.join(data_dir, d))[0]
             for d in os.listdir(data_dir)
             if os.path.isdir(os.path.join(data_dir, d))
         ]
@@ -490,14 +491,14 @@ if __name__ == "__main__":
             deactivate_dropout_layers(mdl)
             tkn = None
             if "cifar" in args.orig_data_dir:
-                means = [0.49139968, 0.48215827, 0.44653124]
-                sds = [0.24703233, 0.24348505, 0.26158768]
+                means = CIFAR_MEAN
+                sds = CIFAR_STD
             else:
                 means = [
-                    0.1307,
+                    MNIST_MEAN,
                 ]
                 sds = [
-                    0.3081,
+                    MNIST_STD,
                 ]
         else:
             tkn, mdl = load_bert_model(

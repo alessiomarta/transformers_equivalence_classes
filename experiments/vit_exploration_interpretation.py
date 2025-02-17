@@ -22,7 +22,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 from experiments.models.vit import PatchDecoder
 from experiments.experiments_utils import (
-    load_raw_images,
+    load_and_transform_raw_images,
     deactivate_dropout_layers,
     load_model,
     load_object,
@@ -252,7 +252,7 @@ def main():
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
-    images, names = load_raw_images(args.experiment_path)
+    images, names = load_and_transform_raw_images(args.experiment_path)
     images = images.to(device)
     model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(

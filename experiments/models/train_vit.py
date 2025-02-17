@@ -13,6 +13,7 @@ import torch
 from torchvision import datasets, transforms
 from tqdm.auto import trange
 from experiments.models.vit import ViTForClassification
+from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 
 def load_config(config_path):
@@ -219,14 +220,14 @@ def prepare_data(
             [
                 transforms.ToTensor(),
                 transforms.Normalize(
-                    mean=[0.49139968, 0.48215827, 0.44653124],
-                    std=[0.24703233, 0.24348505, 0.26158768],
+                    mean=CIFAR_MEAN,
+                    std=CIFAR_STD,
                 ),
             ]
         )
     else:
         transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
+            [transforms.ToTensor(), transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
         )
 
     data_dir = f"{base_dir}/{dataset.lower()}_data"

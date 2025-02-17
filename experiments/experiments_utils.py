@@ -10,7 +10,7 @@ import string
 from typing import Any, List, Tuple, Optional
 import pickle
 import torch
-from torchvision import datasets, transforms
+from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
 from transformers import (
     BertForMaskedLM,
@@ -18,6 +18,7 @@ from transformers import (
     BertTokenizerFast,
 )
 from experiments.models.vit import ViTForClassification
+from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 
 def collect_pkl_res_files(exploration_result_dir: str) -> list:
@@ -119,6 +120,67 @@ def load_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
     return torch.stack(images), images_names
 
 
+def load_and_transform_raw_images(img_dir: str) -> Tuple[torch.Tensor, List[str]]:
+    """
+    Load images from a directory, convert them to grayscale, resize to 28x28, and apply a standard transformation.
+
+    Args:
+        img_dir: The directory from which images are loaded.
+
+    Returns:
+        A tuple containing a batch of tensor images and their corresponding names.
+    """
+    image_extensions = (".jpg", ".jpeg", ".png", ".gif", ".bmp")
+    images = []
+    images_names = []
+    for filename in os.listdir(img_dir):
+        if os.path.isfile(
+            os.path.join(img_dir, filename)
+        ) and filename.lower().endswith(image_extensions):
+            image = load_and_transform_raw_image(os.path.join(img_dir, filename))
+            images.append(image)
+            images_names.append(filename)
+    return torch.stack(images), images_names
+
+
+def load_and_transform_raw_image(img_path: str) -> torch.Tensor:
+    """
+    Load a single image from a file, convert it to grayscale if necessary, and apply a standard transformation.
+
+    Args:
+        img_path: The path to the image file.
+
+    Returns:
+        A tensor containing the transformed image.
+    """
+    if "cifar" in img_path.lower():
+        transform = transforms.Compose(
+            [
+                transforms.Normalize(
+                    mean=CIFAR_MEAN,
+                    std=CIFAR_STD,
+                ),
+            ]
+        )
+    else:
+        transform = transforms.Compose(
+            [transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
+        )
+
+    if os.path.isfile(img_path):
+        if "mnist" in img_path:
+            image = transform(
+                read_image(img_path, mode=ImageReadMode.GRAY).to(torch.float32)
+            )
+        else:
+            image = transform(
+                read_image(img_path, mode=ImageReadMode.RGB).to(torch.float32)
+            )
+        return image
+    else:
+        raise FileNotFoundError(f"No such file: '{img_path}'")
+
+
 def load_raw_image(img_dir: str, image_filename: str) -> Tuple[torch.Tensor, List[str]]:
     """
     Load a single image from a specific image file within a directory
@@ -176,60 +238,6 @@ def load_raw_sent(txt_dir: str, sentence_filename: str) -> Tuple[str, str]:
         txt = file.readlines()[0]
     txt_name = sentence_filename.split(".")[0]
     return txt, txt_name
-
-
-def prepare_data(
-    out_dir: str = ".data/MNIST/",
-    batch_size: int = 128,
-    num_workers: int = 2,
-    test: bool = True,
-    train_sample_size: Optional[int] = None,
-    test_sample_size: Optional[int] = None,
-) -> Tuple[Any, ...]:
-    """
-    Prepare data loaders for the MNIST dataset with options for subsampling and separate train/test loaders.
-
-    Args:
-        out_dir: The directory where the MNIST dataset will be downloaded and stored.
-        batch_size: The number of samples per batch.
-        num_workers: The number of worker processes for data loading.
-        test: Whether to prepare a test set loader.
-        train_sample_size: Optional number of training samples to use.
-        test_sample_size: Optional number of testing samples to use.
-
-    Returns:
-        A tuple containing the training data loader, test data loader (if requested), and a tuple of class indices.
-    """
-    classes = tuple(range(10))
-    mean, std = (0.5,), (0.5,)
-    transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Normalize(mean, std)]
-    )
-    trainset = datasets.MNIST(out_dir, download=True, train=True, transform=transform)
-
-    if train_sample_size is not None:
-        indices = torch.randperm(len(trainset))[:train_sample_size]
-        trainset = torch.utils.data.Subset(trainset, indices)
-
-    trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-
-    if test:
-        testset = datasets.MNIST(
-            out_dir, download=True, train=False, transform=transform
-        )
-
-        if test_sample_size is not None:
-            indices = torch.randperm(len(testset))[:test_sample_size]
-            testset = torch.utils.data.Subset(testset, indices)
-
-        testloader = torch.utils.data.DataLoader(
-            testset, batch_size=batch_size, shuffle=False, num_workers=num_workers
-        )
-        return trainloader, testloader, classes
-
-    return trainloader, classes
 
 
 def load_config(config_path: str) -> dict:
