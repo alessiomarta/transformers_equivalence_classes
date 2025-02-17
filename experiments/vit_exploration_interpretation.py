@@ -172,7 +172,9 @@ def interpret(
         0
     ].squeeze()  # prediction from translating embeddings back to image, and processing that image
 
-    modified_image = denormalize(modified_image, std=sds, mean=means)
+    modified_image = denormalize(
+        modified_image.to(device), std=sds.to(device), mean=means.to(device)
+    )
     json_stats["modified_image_pred"] = torch.argmax(modified_image_pred_proba).item()
     json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
     json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
