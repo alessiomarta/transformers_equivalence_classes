@@ -626,14 +626,14 @@ if __name__ == "__main__":
                 deactivate_dropout_layers(mdl)
                 tkn = None
                 if "cifar" == base_experiment["exp_name"]:
-                    means = [0.49139968, 0.48215827, 0.44653124]
-                    sds = [0.24703233, 0.24348505, 0.26158768]
+                    means = CIFAR_MEAN
+                    sds = CIFAR_STD
                 else:
                     means = [
-                        0.1307,
+                        MNIST_MEAN,
                     ]
                     sds = [
-                        0.3081,
+                        MNIST_STD,
                     ]
             else:
                 tkn, mdl = load_bert_model(
