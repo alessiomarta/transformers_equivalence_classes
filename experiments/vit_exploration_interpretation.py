@@ -85,148 +85,155 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
-    width, height = original_image.shape[1:]
-    model.eval()
-    json_stats = {}
-    original_image_pred = model(original_image.to(device).unsqueeze(0))[0]
-    json_stats["original_image_pred_proba"] = (
-        original_image_pred  # prediction probabilities from original image
-    ).cpu()
-    json_stats["original_image_pred"] = torch.argmax(
-        original_image_pred
-    ).item()  # prediction from original image
+    with torch.no_grad():
+        width, height = original_image.shape[1:]
+        model.eval()
+        json_stats = {}
+        original_image_pred = model(original_image.to(device).unsqueeze(0))[0]
+        json_stats["original_image_pred_proba"] = (
+            original_image_pred  # prediction probabilities from original image
+        ).cpu()
+        json_stats["original_image_pred"] = torch.argmax(
+            original_image_pred
+        ).item()  # prediction from original image
 
-    pred_proba = model.classifier(
-        output_embedding[:, 0]
-    )  # prediction prababilities from modified embedding at a certain iteration
-    json_stats["embedding_pred_proba"] = pred_proba.cpu()
-    json_stats["embedding_pred"] = torch.argmax(
-        pred_proba
-    ).item()  # prediction from modified embedding at a certain iteration
+        pred_proba = model.classifier(
+            output_embedding[:, 0]
+        )  # prediction prababilities from modified embedding at a certain iteration
+        json_stats["embedding_pred_proba"] = pred_proba.cpu()
+        json_stats["embedding_pred"] = torch.argmax(
+            pred_proba
+        ).item()  # prediction from modified embedding at a certain iteration
 
-    input_embedding = input_embedding.detach()
-    if capping:
-        min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(device)
-        max_cap = load_object(os.path.join(capping, "max_distribution.pkl")).to(device)
-        # cap input embeddings to bring them back to what the decoder knows
-        input_embedding[input_embedding < min_cap] = min_cap[input_embedding < min_cap]
-        input_embedding[input_embedding > max_cap] = max_cap[input_embedding > max_cap]
+        input_embedding = input_embedding.detach()
+        if capping:
+            min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(
+                device
+            )
+            max_cap = load_object(os.path.join(capping, "max_distribution.pkl")).to(
+                device
+            )
+            # cap input embeddings to bring them back to what the decoder knows
+            input_embedding[input_embedding < min_cap] = min_cap[
+                input_embedding < min_cap
+            ]
+            input_embedding[input_embedding > max_cap] = max_cap[
+                input_embedding > max_cap
+            ]
 
-        pred_capped_proba = model.classifier(
-            model.encoder(input_embedding)[0][:, 0]
-        )  # prediction from modified embedding at a certain iteration, when exploring phase does not perform capping at each iteration
-        json_stats["capped_embedding_pred_proba"] = pred_capped_proba.cpu()
-        json_stats["capped_embedding_pred"] = torch.argmax(pred_capped_proba).item()
-    else:
-        json_stats["capped_embedding_pred_proba"] = (
-            None  # this means that the capping has been performed at exploration time
-        )
-        json_stats["capped_embedding_pred"] = "exploration-capping"
+            pred_capped_proba = model.classifier(
+                model.encoder(input_embedding)[0][:, 0]
+            )  # prediction from modified embedding at a certain iteration, when exploring phase does not perform capping at each iteration
+            json_stats["capped_embedding_pred_proba"] = pred_capped_proba.cpu()
+            json_stats["capped_embedding_pred"] = torch.argmax(pred_capped_proba).item()
+        else:
+            json_stats["capped_embedding_pred_proba"] = (
+                None  # this means that the capping has been performed at exploration time
+            )
+            json_stats["capped_embedding_pred"] = "exploration-capping"
 
-    # select those patches to replace with modified ones
-    patch_idx = []
-    if eq_class_patch_ids:
-        for p in eq_class_patch_ids:
-            patch_idx.append(
-                (
-                    np.array(
-                        np.unravel_index(  # TODO sistemare value error index -1 is out of bounds for array with size 256 per immagini dove non tutte le patch cambiano (non "all")
-                            p,  # -1 ?
-                            (
-                                width // model.embedding.patch_size,
-                                height // model.embedding.patch_size,
-                            ),
+        # select those patches to replace with modified ones
+        patch_idx = []
+        if eq_class_patch_ids:
+            for p in eq_class_patch_ids:
+                patch_idx.append(
+                    (
+                        np.array(
+                            np.unravel_index(  # TODO sistemare value error index -1 is out of bounds for array with size 256 per immagini dove non tutte le patch cambiano (non "all")
+                                p,  # -1 ?
+                                (
+                                    width // model.embedding.patch_size,
+                                    height // model.embedding.patch_size,
+                                ),
+                            )
                         )
-                    )
-                    * model.embedding.patch_size
-                )[::-1]
+                        * model.embedding.patch_size
+                    )[::-1]
+                )
+            mod_pixels = [[], []]
+            for p in patch_idx:
+                for i in range(model.embedding.patch_size):
+                    for j in range(model.embedding.patch_size):
+                        mod_pixels[0].append(p[0] + i)
+                        mod_pixels[1].append(p[1] + j)
+
+            # embeddings->image
+            decoded_image = decoder(input_embedding.to(device))
+
+            # replace patches in original image with those in modified image
+            modified_image = original_image.clone().to(device)
+            modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
+                :, :, mod_pixels[1], mod_pixels[0]
+            ]
+            json_stats["modified_patches"] = modified_image[
+                :, mod_pixels[1], mod_pixels[0]
+            ].cpu()
+        else:
+            modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
+            if len(modified_image.size()) == 2:
+                modified_image = modified_image.unsqueeze(0)
+            json_stats["modified_patches"] = modified_image.cpu()
+        modified_image_pred_proba = model(modified_image.unsqueeze(0))[
+            0
+        ].squeeze()  # prediction from translating embeddings back to image, and processing that image
+
+        modified_image = denormalize(
+            modified_image.to(device),
+            std=torch.tensor(sds).to(device),
+            mean=torch.tensor(means).to(device),
+        )
+        json_stats["modified_image_pred"] = torch.argmax(
+            modified_image_pred_proba
+        ).item()
+        json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
+        json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
+            json_stats["original_image_pred"]
+        ].item()  # this is to compare probabilities in case the prediction has changed
+
+        fname = os.path.join(
+            img_out_dir,
+            f"{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
+        )
+        patches_fname = os.path.join(
+            img_out_dir,
+            f"patches-{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
+        )
+        if not os.path.exists(img_out_dir):
+            os.makedirs(img_out_dir)
+        save_image(
+            modified_image,
+            fname,
+            format="png",
+        )
+        _, ax = plt.subplots()
+        if modified_image.size(0) == 1:
+            ax.imshow(
+                modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy(),
+                cmap="gray",
+                # norm=Normalize(vmin=0, vmax=1),
             )
-        mod_pixels = [[], []]
+        else:
+            ax.imshow(modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy())
         for p in patch_idx:
-            for i in range(model.embedding.patch_size):
-                for j in range(model.embedding.patch_size):
-                    mod_pixels[0].append(p[0] + i)
-                    mod_pixels[1].append(p[1] + j)
-
-        # embeddings->image
-        decoded_image = decoder(input_embedding.to(device))
-
-        # TODO da vedere effettivamente la distribuzione dei valori decodificati
-        # TODO verificare comunque i bound in uscita dal decoder, ho visto dei 271...
-        # TODO speriamo di risolvere le immagini in bianco
-
-        # replace patches in original image with those in modified image
-        modified_image = original_image.clone().to(device)
-        modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
-            :, :, mod_pixels[1], mod_pixels[0]
-        ]
-        json_stats["modified_patches"] = modified_image[
-            :, mod_pixels[1], mod_pixels[0]
-        ].cpu()
-    else:
-        modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
-        if len(modified_image.size()) == 2:
-            modified_image = modified_image.unsqueeze(0)
-        json_stats["modified_patches"] = modified_image.cpu()
-    modified_image_pred_proba = model(modified_image.unsqueeze(0))[
-        0
-    ].squeeze()  # prediction from translating embeddings back to image, and processing that image
-
-    modified_image = denormalize(
-        modified_image.to(device),
-        std=torch.tensor(sds).to(device),
-        mean=torch.tensor(means).to(device),
-    )
-    json_stats["modified_image_pred"] = torch.argmax(modified_image_pred_proba).item()
-    json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
-    json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
-        json_stats["original_image_pred"]
-    ].item()  # this is to compare probabilities in case the prediction has changed
-
-    fname = os.path.join(
-        img_out_dir,
-        f"{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
-    )
-    patches_fname = os.path.join(
-        img_out_dir,
-        f"patches-{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
-    )
-    if not os.path.exists(img_out_dir):
-        os.makedirs(img_out_dir)
-    save_image(
-        modified_image,
-        fname,
-        format="png",
-    )
-    _, ax = plt.subplots()
-    if modified_image.size(0) == 1:
-        ax.imshow(
-            modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy(),
-            cmap="gray",
-            # norm=Normalize(vmin=0, vmax=1),
-        )
-    else:
-        ax.imshow(modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy())
-    for p in patch_idx:
-        ax.add_patch(
-            Rectangle(
-                tuple(p + np.array([-0.5, -0.5])),
-                model.embedding.patch_size,
-                model.embedding.patch_size,
-                linewidth=1,
-                edgecolor="r",
-                facecolor="none",
+            ax.add_patch(
+                Rectangle(
+                    tuple(p + np.array([-0.5, -0.5])),
+                    model.embedding.patch_size,
+                    model.embedding.patch_size,
+                    linewidth=1,
+                    edgecolor="r",
+                    facecolor="none",
+                )
             )
+
+        plt.savefig(patches_fname)
+        plt.close()
+
+        json_fname = os.path.join(
+            img_out_dir,
+            f"{iteration}-stats.pkl",
         )
-
-    plt.savefig(patches_fname)
-    plt.close()
-
-    json_fname = os.path.join(
-        img_out_dir,
-        f"{iteration}-stats.pkl",
-    )
-    save_object(json_stats, json_fname)
+        save_object(json_stats, json_fname)
 
 
 def parse_args() -> argparse.Namespace:
