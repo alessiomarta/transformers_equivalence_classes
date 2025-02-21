@@ -565,6 +565,8 @@ if __name__ == "__main__":
             "repeat": None,  # Number of times to repeat experiments (to be determined dynamically)
             "patches": None,  # Patch exploration options (set dynamically)
             "objective": "cls",  # Default model objective: classification
+            "exploratin_capping": args.cap_ex,  # If True, embeddings are capped during exploration, otherwise they are capped at interpretation
+            "theoretical_min_max": args.theoretical_min_max,  # If True, the distribution used to cap the embeddings are taken from the model's theoretical min and max. Otherwise, min and max are computed on the experiment inputs
         }
 
         # Define specific experiments with fixed configurations
