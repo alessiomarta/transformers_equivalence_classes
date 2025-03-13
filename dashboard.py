@@ -4,14 +4,15 @@ import pandas as pd
 import numpy as np
 from scipy.special import softmax
 from scipy.spatial.distance import cityblock as manhattan
+from sklearn.metrics import confusion_matrix
 import plotly.express as px
-from typing import Iterable, List
+from typing import List
 
 # Load data
 df = pd.read_parquet("all_experiments_results.parquet") 
 
 df.dropna(axis = 1, inplace=True)
-df.drop(['input_embedding', 'output_embedding', 'capped_embedding_pred', 'modified_original_pred_proba', 'metadata_path', 'model_path', 'algo', 'objective', 'orig_data_dir'], axis = 1,  inplace = True)
+df.drop(['capped_embedding_pred', 'modified_original_pred_proba', 'metadata_path', 'model_path', 'algo', 'objective', 'orig_data_dir'], axis = 1,  inplace = True)
 df['input_name'] = df['input_name'].astype(str)
 
 for col in df.columns:
@@ -53,6 +54,7 @@ aggregated_data = df.groupby(["exp_name", "iteration", "repetition", "patches", 
 aggregated_data.drop("input_name", axis = 1, inplace = True)
 aggregated_data = aggregated_data.map(aggregation_function).reset_index()
 aggregated_data['input_name'] = aggregated_data['exp_name'].apply(lambda s: "agg_" + s)
+aggregated_data['distance'] = aggregated_data['distance'].apply(np.mean)
 df = pd.concat([df, aggregated_data], axis = 0, ignore_index=True)
 df.sort_values(['input_name', 'iteration'], inplace=True)
 
@@ -124,32 +126,28 @@ def update_plots(input_name, delta_mult, explore_patches_len):
             plot_bgcolor="white"
         )
 
-        return fig, fig, fig, fig, fig, fig
+        return fig, fig, fig, fig, fig, fig, fig, fig, fig, fig
 
     grouped_df = filtered_df.groupby(['iteration', 'algorithm']).agg(list)
     grouped_df = grouped_df.reset_index(names = ['it', 'alg'])
     grouped_df['embedding_pred_init_proba_mean'] = grouped_df['embedding_pred_init_proba'].apply(np.mean)
     grouped_df['embedding_pred_init_proba_sd'] = grouped_df['embedding_pred_init_proba'].apply(np.std)
     
-    # Probability of the original class over iterations
-    fig1 = px.line(grouped_df, x='it', y='embedding_pred_init_proba_mean', color='alg', error_y="embedding_pred_init_proba_sd",
-                   title='Probability of the Original Class over Iterations')
+    # 1) Probability of the original class over iterations
+    fig1 = px.line(grouped_df, x='it', y='embedding_pred_init_proba_mean', color='alg', error_y="embedding_pred_init_proba_sd", title='Probability of the Original Class over Iterations')
     
-    # Delta over iterations
-    grouped_df['delta_mean'] = grouped_df['delta'].apply(np.mean)
-    grouped_df['delta_sd'] = grouped_df['delta'].apply(np.std)
-    
-    fig2 = px.line(grouped_df, x='it', y='delta_mean', color='alg', error_y="delta_sd", 
-                   title='Delta over Iterations')
-    
-    # Prediction probability difference (KLDiv) between decoded image and embedding
+    # 2) Probability of top class over iterations
+    grouped_df['embedding_pred_max_proba_mean'] = grouped_df['embedding_pred_proba'].apply(lambda x: np.max(x, axis = -1).mean())
+    grouped_df['embedding_pred_max_proba_sd'] = grouped_df['embedding_pred_proba'].apply(lambda x: np.max(x, axis = -1).std())
+    fig2 = px.line(grouped_df, x = "it", y = "embedding_pred_max_proba_mean", color = "alg", error_y="embedding_pred_max_proba_sd", title='Max probability over Iterations')
+
+    # 3) Prediction probability difference (L1) between decoded image and embedding
     grouped_df['modified_image_pred_proba_mean'] = grouped_df['modified_image_pred_proba'].apply(lambda x: np.mean(x, axis = 0))
     grouped_df['embedding_pred_proba_mean'] = grouped_df['embedding_pred_proba'].apply(lambda x: np.mean(x, axis = 0))
     grouped_df['decoding_difference'] = grouped_df.apply(lambda row: manhattan(row['embedding_pred_proba_mean'], row['modified_image_pred_proba_mean']), axis = 1)
-    fig3 = px.box(grouped_df, x='alg', y='decoding_difference', 
-                  title='Prediction Probability Difference (L1 distance) between Decoded Image and Embedding')
+    fig3 = px.box(grouped_df, x='alg', y='decoding_difference', title='Prediction Probability Difference (L1 distance) between Decoded Image and Embedding')
     
-    # Histogram of class mismatch (embedding and decode), i.e. how long the prediction remains in the same class
+    # 4) Histogram of class mismatch (embedding and decode), i.e. how long the prediction remains in the same class
     filtered_df['element_id'] = filtered_df['original_image_pred'].apply(lambda L: list(range(len(L))) if isinstance(L, List) else [0])
     if isinstance(filtered_df['embedding_pred'].iloc[0], List):
         exploded_df = filtered_df.explode(['original_image_pred','embedding_pred','modified_image_pred', 'element_id'])
@@ -170,24 +168,83 @@ def update_plots(input_name, delta_mult, explore_patches_len):
 
     fig4 = px.bar(class_mismatches, x = "alg", y = 'mean_iteration', color = "decoded", error_y='sd_iteration',
                   title = "Barchart of First Change wrt the Original Class")
+    
+    # 5) Delta over iterations
+    grouped_df['delta_mean'] = grouped_df['delta'].apply(np.mean)
+    grouped_df['delta_sd'] = grouped_df['delta'].apply(np.std)
+    
+    fig5 = px.line(grouped_df, x='it', y='delta_mean', color='alg', error_y="delta_sd", 
+                   title='Delta over Iterations')
+    
+    # 6) Relation between avg delta and pixel changes in images each 100 iterations
+    grouped_df['iter_group'] = grouped_df['it'] // 100
+    grouped_100step = grouped_df.groupby(['iter_group', 'alg']).agg(list).reset_index(names = ['century', 'algorithms'])
+    grouped_100step['delta_mean'] = grouped_100step['delta_mean'].apply(np.mean)
+    if input_name.startswith("agg_"):
+        grouped_100step['image_diff'] = grouped_100step.apply(
+            lambda row: np.mean([
+                manhattan(
+                    np.reshape(a, (-1)), 
+                    np.reshape(b, (-1))
+                )
+            for a,b in zip(row['modified_image'][0], row['modified_image'][-1])]), 
+            axis = 1
+        )
+    else:
+        grouped_100step['image_diff'] = grouped_100step.apply(
+            lambda row: manhattan(
+                np.reshape(row['modified_image'][0], (-1)), 
+                np.reshape(row['modified_image'][-1], (-1))
+            ), 
+            axis = 1
+        )
 
-    # Prediction probabilities (from embedding) of all classes (SIMEC only)
+    fig6 = px.scatter(grouped_100step, x = "delta_mean", y = "image_diff", color = "algorithms", title="Avg delta vs pixel changes in images each 100 iterations")
+
+    # 7) Prediction probabilities (from embedding) of all classes (SIMEC only)
     simec_df = filtered_df.loc[filtered_df['algorithm'] == "simec", ['iteration', 'repetition', 'embedding_pred_proba']]
     simec_proba_means = simec_df.groupby("iteration").agg(list).map(lambda x: np.mean(x, axis = 0).tolist())
     simec_proba_means = pd.DataFrame(simec_proba_means['embedding_pred_proba'].tolist(), index = simec_proba_means.index)
     simec_proba_means = pd.melt(simec_proba_means.reset_index().rename({"iteration":"it"}, axis = 1), id_vars = "it", value_vars=list(range(simec_proba_means.shape[1])))
-    fig5 = px.line(simec_proba_means, x = "it", y = "value", color ="variable",
+    fig7 = px.line(simec_proba_means, x = "it", y = "value", color ="variable",
                    title="Avg Probabilities of All Classes over Iterations (SIMEC)")
 
-    # Prediction probabilities (from embedding) of all classes (SIMExp only)
+    # 8) Prediction probabilities (from embedding) of all classes (SIMExp only)
     simexp_df = filtered_df.loc[filtered_df['algorithm'] == "simexp", ['iteration', 'repetition', 'embedding_pred_proba']]
     simexp_proba_means = simexp_df.groupby("iteration").agg(list).map(lambda x: np.mean(x, axis = 0).tolist())
     simexp_proba_means = pd.DataFrame(simexp_proba_means['embedding_pred_proba'].tolist(), index = simexp_proba_means.index)
     simexp_proba_means = pd.melt(simexp_proba_means.reset_index().rename({"iteration":"it"}, axis = 1), id_vars = "it", value_vars=list(range(simexp_proba_means.shape[1])))
-    fig6 = px.line(simexp_proba_means, x = "it", y = "value", color ="variable",
+    fig8 = px.line(simexp_proba_means, x = "it", y = "value", color ="variable",
                    title="Avg Probabilities of All Classes over Iterations (SIMExp)")
     
-    return fig1, fig2, fig3, fig4, fig5, fig6
+    # 9) Relation between "distance" and "output_emb" - "input_emb"
+    if input_name.startswith("agg_"):
+        filtered_df['empirical_distance'] = filtered_df.apply(
+            lambda row: np.mean([
+                manhattan(a,b)
+            for a,b in zip(row['output_embedding'], row['input_embedding'])
+            ]), 
+            axis = 1
+        )
+    else:
+        filtered_df['empirical_distance'] = filtered_df.apply(
+            lambda row: manhattan(
+                row['output_embedding'], 
+                row['input_embedding']
+            ), 
+            axis = 1
+        )
+    fig9 = px.scatter(filtered_df, x = "distance", y = "empirical_distance", color = "algorithm", title = 'Relation between theoretical and empirical distances')
+
+    # 10) Confusion matrix between "original_image_pred" and "modified_image_pred"
+    labels = list(range(N_classes))
+    if input_name.startswith("agg_"):
+        cm = confusion_matrix(filtered_df['original_image_pred'].explode(), filtered_df['modified_image_pred'].explode(), labels = labels)
+    else:
+        cm = confusion_matrix(filtered_df['original_image_pred'], filtered_df['modified_image_pred'], labels = labels)
+    fig10 = px.imshow(cm)
+    
+    return fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8, fig9, fig10
 
 if __name__ == '__main__':
     app.run_server(debug=True)
