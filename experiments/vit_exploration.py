@@ -123,7 +123,7 @@ def main():
     )
 
     algorithms = ["simec"]
-    if params["algo"] == "both":
+    if params["algo"] == ["both"]:
         algorithms.append("simexp")
     elif params["algo"] == "simexp":
         algorithms[0] = "simexp"

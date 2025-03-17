@@ -35,6 +35,7 @@ from experiments.experiments_utils import (
     load_and_transform_raw_images,
     load_raw_sents,
     save_object,
+    load_object,
     compute_embedding_boundaries,
 )
 from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
@@ -435,6 +436,12 @@ def parse_arguments():
         help="If set, the experiments will use min and max values for capping embeddings taken from the used model. If not set, the experiments will use min and max values computed on experimentd data.",
     )
 
+    parser.add_argument(
+        "--sample",
+        action="store_true",
+        help="If set, different input data will be used for each experiment.",
+    )
+
     return parser, parser.parse_args()
 
 
@@ -525,12 +532,31 @@ if __name__ == "__main__":
 
         # Prepare experiment directory and configuration
         experiment_dir = os.path.join(args.exp_dir, args.exp_name)
-        input_type = generate_experiment(
-            input_path=args.orig_data_dir,
-            exp_dir=experiment_dir,
-            n_inputs=args.inputs,
-            patch_option=args.patches,
-        )
+        first_exp_same_patch = [
+            d for d in os.listdir(args.exp_dir) if args.patches in d
+        ]
+        if args.sample or not first_exp_same_patch:
+            input_type, sampled_images = generate_experiment(
+                input_path=args.orig_data_dir,
+                exp_dir=experiment_dir,
+                n_inputs=args.inputs,
+                patch_option=args.patches,
+            )
+            if not args.sample:
+                save_object(
+                    sampled_images, os.path.join(args.exp_dir, "sampled_images.pkl")
+                )
+        else:
+            sampled_images = load_object(
+                os.path.join(args.exp_dir, "sampled_images.pkl")
+            )
+            input_type = generate_experiment(
+                input_path=args.orig_data_dir,
+                exp_dir=experiment_dir,
+                n_inputs=args.inputs,
+                patch_option=args.patches,
+                fixed_inputs=sampled_images,
+            )
 
         # Prepare configuration
         parameters = vars(args)
@@ -693,7 +719,7 @@ if __name__ == "__main__":
                         experiment_dir = os.path.join("experiments_data", exp_name_full)
 
                         # Generate experiment inputs and save parameters
-                        if args.test:
+                        if args.test or not args.sample:
                             # Ensure at least 20% of inputs remain fixed for test comparisons
                             if sample:
                                 generate_experiment(
