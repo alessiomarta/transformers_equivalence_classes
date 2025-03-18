@@ -309,7 +309,7 @@ def explore(
                 "input_embedding": input_emb.cpu(),
                 "output_embedding": output_emb.cpu(),
                 "distance": distance.cpu(),
-                "iteration": n_iterations,
+                "iteration": i,
                 "time": times["time"],
                 "delta": delta.cpu(),
             },
