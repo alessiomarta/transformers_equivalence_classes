@@ -14,7 +14,6 @@ from experiments.experiments_utils import (
     load_and_transform_raw_images,
     load_raw_sents,
     save_object,
-    load_object,
     compute_embedding_boundaries,
 )
 from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
