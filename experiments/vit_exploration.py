@@ -17,6 +17,7 @@ from experiments_utils import (
     deactivate_dropout_layers,
     load_model,
     load_json,
+    save_json,
     load_object,
 )
 from simec.logics import explore, ExplorationException
@@ -40,9 +41,18 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing data, config.json, and parameters.json. Automatically created with prepare_experiment.py",
     )
     parser.add_argument(
+        "--continue-from",
+        type=str,
+        help="Directory containing previous iteration for the selected experiments. If this argument is used, this experiment will continue from these previous iterations. res_path will be ignored, as further iterations will be saved in the same experiment path.",
+    )
+    parser.add_argument(
+        "--extra-iterations",
+        type=int,
+        help="How many extra iteration to continue the experiment.",
+    )
+    parser.add_argument(
         "--out-dir",
         type=str,
-        required=True,
         help="Directory where to store the exploration output from this experiment.",
     )
     parser.add_argument(
@@ -73,6 +83,35 @@ def main():
     args = parse_args()
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
+    if args.continue_from is not None:
+        if not os.path.exists(args.continue_from):
+            raise FileNotFoundError(
+                "The directory selected for continuing the experiment does not exist."
+            )
+        if os.path.basename(args.experiment_path) not in args.continue_from:
+            raise ValueError(
+                "The directory for continuing experiment must match the metadata experiment directory."
+            )
+        if args.extra_iterations is None:
+            raise ValueError(
+                "Specify how many iterations to perform for continuing the experiment"
+            )
+        n_iterations = params["iterations"] + args.extra_iterations
+        start_iteration = params["iterations"]
+        params["iterations"] = n_iterations
+        save_json(os.path.join(args.experiment_path, "parameters.json"), params)
+
+    else:
+        if args.out_dir is None:
+            raise ValueError("No output path specified in out-dir argument.")
+        str_time = time.strftime("%Y%m%d-%H%M%S")
+        res_path = os.path.join(
+            args.out_dir, os.path.basename(args.experiment_path) + "-" + str_time
+        )
+        if not os.path.exists(res_path):
+            os.makedirs(res_path)
+        n_iterations = params["iterations"]
+        start_iteration = 0
     device = torch.device(args.device)
     images, names = load_and_transform_raw_images(args.experiment_path)
     #images = images.to(device)
@@ -85,13 +124,7 @@ def main():
         device=torch.device("cpu"),
     )
     deactivate_dropout_layers(model)
-    #model = model.to(device)
-    str_time = time.strftime("%Y%m%d-%H%M%S")
-    res_path = os.path.join(
-        args.out_dir, os.path.basename(args.experiment_path) + "-" + str_time
-    )
-    if not os.path.exists(res_path):
-        os.makedirs(res_path)
+    model = model.to(device)
 
     input_patches = model.patcher(images)
     # input_patches.shape = (len(images), N_patches, N_channels*kernel_size**2)
@@ -108,7 +141,7 @@ def main():
     )
 
     algorithms = ["simec"]
-    if params["algo"] == "both":
+    if params["algo"] == ["both"]:
         algorithms.append("simexp")
     elif params["algo"] == "simexp":
         algorithms[0] = "simexp"
@@ -134,30 +167,61 @@ def main():
                     f"Image: {file_names}\tRepetition: {r+1}/{params['repeat']}"
                 )
                 try:
+                    # load last iteration if continuing another experiment
+                    if args.continue_from is not None:
+                        exp_dir = os.path.join(
+                            args.continue_from,
+                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
+                        )
+                        list_dir = os.listdir(exp_dir)
+                        pkl_files = [
+                            f
+                            for f in list_dir
+                            if os.path.splitext(os.path.basename(f))[0].isnumeric()
+                        ]
+                        last_pkl = load_object(
+                            os.path.join(
+                                exp_dir,
+                                sorted(pkl_files, key=lambda x: int(x.split(".")[0]))[
+                                    -1
+                                ],
+                            )
+                        )
+                        input_embedding = last_pkl["input_embedding"]
+                        distance = last_pkl["distance"]
+                    else:
+                        exp_dir = os.path.join(
+                            res_path,
+                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
+                        )
+                        distance = None
                     explore(
                         same_equivalence_class=(algorithm == "simec"),
                         input_embedding=input_embedding[0],
                         model=model,
                         threshold=params["threshold"],
                         delta_multiplier=params["delta_mult"],
-                        n_iterations=params["iterations"],
-                        pred_id=pred_id,
-                        eq_class_emb_ids= eq_class_emb_ids,
+                        n_iterations=n_iterations,
+                        pred_id=config[names[idx]]["objective"],
+                        eq_class_emb_ids=(
+                            None
+                            if config[names[idx]]["explore"] == []
+                            else config[names[idx]]["explore"]
+                        ),
                         device=device,
-                        out_dir=[os.path.join(
-                            res_path,
-                            f"{algorithm}-{name.split('.')[0]}-{str(r+1)}"
-                        ) for name in file_names],
+                        out_dir=exp_dir,
                         save_each=params["save_each"],
                         capping=True,
                         min_embeddings=min_embs,
                         max_embeddings=max_embs,
+                        start_iteration=start_iteration,
+                        distance=distance,
                     )
                 except Exception as e:
                     log.error(
                         "Unhandled exception during exploration:\nContext:\n"
                         "res_path: %s\nalgorithm: %s\nname: %s\nparams_repeat: %d\nError: %s",
-                        res_path,
+                        exp_dir,
                         algorithm,
                         names[idx],
                         r + 1,

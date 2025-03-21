@@ -179,3 +179,5 @@ res/
 .vscode
 
 error_log.txt
+
+gpu_tests.ipynb

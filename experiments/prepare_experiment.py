@@ -1,24 +1,3 @@
-"""
-Module for Preparing Experimental Configurations
-
-This module provides tools to prepare experimental setups for machine learning research.
-It includes functionalities for organizing input data, configuring experimental parameters,
-sampling input files, and measuring embedding distributions from models. It is especially
-useful for handling structured datasets and configuring experiments reproducibly.
-
-Features:
----------
-- Dynamically creates experimental directories and populates them with input data and configurations.
-- Supports sampling from structured or flat data directories, with configurable sampling behaviors.
-- Manages input data across multiple experimental setups using parameter grids or predefined configurations.
-- Measures embedding distributions for image and text datasets using specified machine learning models.
-
-Usage:
-------
-To ensure module recognition, set the `PYTHONPATH` environment variable to the working directory:
-    export PYTHONPATH=$(pwd)
-"""
-
 import argparse
 import os
 import copy
@@ -81,6 +60,87 @@ def mask_random_word(sentences, mask_token, classification_token):
         masked_sentences.append(" ".join(words))
 
     return masked_sentences
+
+
+def measure_embedding_distribution(
+    data_dir, model, device, tokenizer=None, objective=None
+):
+    """
+    Measure the distribution of embeddings for images or text data.
+
+    For images: Computes the min and max embeddings using a loaded model.
+    For text: Optionally applies masking for MLM objectives, then computes embeddings.
+
+    Parameters:
+    ----------
+    data_dir : str
+        Path to the dataset directory.
+    model : torch.nn.Module
+        The model used to compute embeddings.
+    device : torch.device
+        Device to run the computations (CPU or GPU).
+    tokenizer : transformers.PreTrainedTokenizer, optional
+        Tokenizer for text data. Required if processing text data.
+    objective : str, optional
+        Objective for the model (e.g., "mlm" for masked language modeling). Required if processing text data.
+
+    Returns:
+    -------
+    tuple:
+        - torch.Tensor: Minimum embeddings.
+        - torch.Tensor: Maximum embeddings.
+    """
+    if any(k in data_dir for k in ["cifar", "mnist"]):
+        images = [
+            load_and_transform_raw_images(os.path.join(data_dir, d))[0]
+            for d in os.listdir(data_dir)
+            if os.path.isdir(os.path.join(data_dir, d))
+        ]
+
+        images = (
+            torch.cat(images).to(device)
+            if isinstance(images, list)
+            else images.to(device)
+        )
+
+        patches = model.embedding(model.patcher(images))
+        return patches.min(dim=0).values.unsqueeze(0), patches.max(
+            dim=0
+        ).values.unsqueeze(0)
+
+    logging.set_verbosity_error()
+
+    subdirs = [
+        os.path.join(data_dir, d)
+        for d in os.listdir(data_dir)
+        if os.path.isdir(os.path.join(data_dir, d))
+    ]
+    has_subdirs = bool(subdirs)
+    if has_subdirs:
+        txts = []
+        for subdir in subdirs:
+            txts += load_raw_sents(subdir)[0]
+    else:
+        txts, _ = load_raw_sents(data_dir)
+
+    if objective == "mlm":
+        txts = mask_random_word(
+            sentences=txts,
+            mask_token=tokenizer.mask_token,
+            classification_token=tokenizer.cls_token,
+        )
+    tokenized = tokenizer(
+        txts,
+        return_tensors="pt",
+        padding="max_length",
+        return_attention_mask=False,
+        add_special_tokens=False if txts[0].startswith("[CLS]") else True,
+    ).to(device)
+    embeddings = model.bert.embeddings(**tokenized).detach()
+
+    return embeddings.min(dim=0).values.unsqueeze(0), embeddings.max(
+        dim=0
+    ).values.unsqueeze(0)
 
 
 def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_inputs=None):
@@ -211,85 +271,134 @@ def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_input
     return file_type, inspected_files
 
 
-def measure_embedding_distribution(
-    data_dir, model, device, tokenizer=None, objective=None
+def generate_experiment_combinations(
+    exp,
+    device,
+    delta_mult_values=None,
+    patch_options=None,
+    input_values=None,
+    test=None,
 ):
-    """
-    Measure the distribution of embeddings for images or text data.
-
-    For images: Computes the min and max embeddings using a loaded model.
-    For text: Optionally applies masking for MLM objectives, then computes embeddings.
-
-    Parameters:
-    ----------
-    data_dir : str
-        Path to the dataset directory.
-    model : torch.nn.Module
-        The model used to compute embeddings.
-    device : torch.device
-        Device to run the computations (CPU or GPU).
-    tokenizer : transformers.PreTrainedTokenizer, optional
-        Tokenizer for text data. Required if processing text data.
-    objective : str, optional
-        Objective for the model (e.g., "mlm" for masked language modeling). Required if processing text data.
-
-    Returns:
-    -------
-    tuple:
-        - torch.Tensor: Minimum embeddings.
-        - torch.Tensor: Maximum embeddings.
-    """
-    if any(k in data_dir for k in ["cifar", "mnist"]):
-        images = [
-            load_and_transform_raw_images(os.path.join(data_dir, d))[0]
-            for d in os.listdir(data_dir)
-            if os.path.isdir(os.path.join(data_dir, d))
-        ]
-
-        images = (
-            torch.cat(images).to(device)
-            if isinstance(images, list)
-            else images.to(device)
+    if patch_options is None:
+        patch_options = exp["patches"]
+    if delta_mult_values is None:
+        delta_mult_values = exp["delta_mult"]
+    if input_values is None:
+        input_values = exp["inputs"]
+    # loading model
+    if any(k in exp["exp_name"] for k in ["cifar", "mnist"]):
+        model_filename = next(
+            f for f in os.listdir(exp["model_path"]) if f.endswith(".pt")
         )
-
-        patches = model.embedding(model.patcher(images))
-        return patches.min(dim=0).values.unsqueeze(0), patches.max(
-            dim=0
-        ).values.unsqueeze(0)
-
-    logging.set_verbosity_error()
-
-    subdirs = [
-        os.path.join(data_dir, d)
-        for d in os.listdir(data_dir)
-        if os.path.isdir(os.path.join(data_dir, d))
-    ]
-    has_subdirs = bool(subdirs)
-    if has_subdirs:
-        txts = []
-        for subdir in subdirs:
-            txts += load_raw_sents(subdir)[0]
+        mdl, _ = load_model(
+            model_path=os.path.join(exp["model_path"], model_filename),
+            config_path=os.path.join(exp["model_path"], "config.json"),
+            device=device,
+        )
+        deactivate_dropout_layers(mdl)
+        tkn = None
+        if "cifar" == exp["exp_name"]:
+            means = CIFAR_MEAN
+            sds = CIFAR_STD
+        else:
+            means = [
+                MNIST_MEAN,
+            ]
+            sds = [
+                MNIST_STD,
+            ]
     else:
-        txts, _ = load_raw_sents(data_dir)
-
-    if objective == "mlm":
-        txts = mask_random_word(
-            sentences=txts,
-            mask_token=tokenizer.mask_token,
-            classification_token=tokenizer.cls_token,
+        tkn, mdl = load_bert_model(
+            exp["model_path"],
+            mask_or_cls=exp["objective"],
+            device=device,
         )
-    tokenized = tokenizer(
-        txts,
-        return_tensors="pt",
-        padding="max_length",
-        return_attention_mask=False,
-        add_special_tokens=False if txts[0].startswith("[CLS]") else True,
-    ).to(device)
-    embeddings = model.bert.embeddings(**tokenized).detach()
+        deactivate_dropout_layers(mdl)
+        means = [0.0]
+        sds = [1.0]
 
-    return embeddings.min(dim=0).values.unsqueeze(0), embeddings.max(
-        dim=0
-    ).values.unsqueeze(0)
+    # computing min and max embeddings
+    if not exp["theoretical_min_max"]:
+        print("Measuring input space distribution...")
+        min_embeddings, max_embeddings = measure_embedding_distribution(
+            data_dir=exp["orig_data_dir"],
+            model=mdl,
+            objective=exp["objective"] or None,
+            tokenizer=tkn,
+            device=device,
+        )
+    else:
+        print("Using theoretical min and max values for capping embeddings.")
+        min_embeddings, max_embeddings = compute_embedding_boundaries(
+            model=mdl, means=means, sds=sds
+        )
+
+    # Initialize variable for fixed sample tracking (test mode)
+    sample = None
+
+    # Iterate over delta multiplier values
+    for delta in delta_mult_values:
+        exp["delta_mult"] = delta
+
+        # Define patch exploration options (or use specific ones for targeted experiments)
+        patch_list = (
+            [exp["patches"]] if exp["patches"] == "target-word" else patch_options
+        )
+
+        # Iterate over patch options
+        for patch_opt in patch_list:
+            exp["patches"] = patch_opt
+
+            # Construct a descriptive name for the experiment
+            exp_name_full = f"{exp['exp_name']}-{delta}-{input_values}-{patch_opt}"
+            if test:
+                exp_name_full = "test/" + exp_name_full
+
+            if "exp_dir" in exp:
+                experiment_dir = os.path.join(exp["exp_dir"], exp_name_full)
+            else:
+                experiment_dir = os.path.join("experiments_data", exp_name_full)
+
+            # Generate experiment inputs and save parameters
+            if test or not exp["sample_images"]:
+                # Ensure at least 20% of inputs remain fixed for test comparisons
+                if sample:
+                    generate_experiment(
+                        input_path=exp["orig_data_dir"],
+                        exp_dir=experiment_dir,
+                        n_inputs=input_values,
+                        patch_option=patch_opt,
+                        fixed_inputs=sample,
+                    )
+                else:
+                    _, sample = generate_experiment(
+                        input_path=exp["orig_data_dir"],
+                        exp_dir=experiment_dir,
+                        n_inputs=input_values,
+                        patch_option=patch_opt,
+                    )
+            else:
+                generate_experiment(
+                    input_path=exp["orig_data_dir"],
+                    exp_dir=experiment_dir,
+                    n_inputs=input_values,
+                    patch_option=patch_opt,
+                )
+
+            # Filter out parameters with None values for saving
+            filtered_experiment = {k: v for k, v in exp.items() if v is not None}
+            save_json(
+                os.path.join(experiment_dir, "parameters.json"),
+                filtered_experiment,
+            )
+            save_object(
+                obj=min_embeddings.cpu(),
+                filename=os.path.join(experiment_dir, "min_distribution.pkl"),
+            )
+            save_object(
+                obj=max_embeddings.cpu(),
+                filename=os.path.join(experiment_dir, "max_distribution.pkl"),
+            )
 
 
 def parse_arguments():
@@ -304,138 +413,139 @@ def parse_arguments():
         description="Prepare and configure experimental parameters for running research experiments."
     )
 
-    # Experiment presets
     parser.add_argument(
         "--default",
         action="store_true",
-        help="Generate default experiments with predefined settings.",
+        help="Generate default experiments with predefined settings, without the interactive environment.",
     )
+
     parser.add_argument(
         "--test",
         action="store_true",
-        help="Generate default test experiments for debugging or small-scale trials.",
     )
 
-    # Experiment configuration
-    parser.add_argument(
-        "-e",
-        "--exp_name",
-        type=str,
-        help="Name of the experiment for identification (required if --default is not set).",
-    )
-    parser.add_argument(
-        "-a",
-        "--algo",
-        choices=["simec", "simexp", "both"],
-        default="both",
-        help="Algorithm to run. Options: 'simec', 'simexp', or 'both'. Defaults to 'both'.",
-    )
-    parser.add_argument(
-        "-n",
-        "--iterations",
-        type=int,
-        help="Number of iterations to run (required if --default is not set).",
-    )
-    parser.add_argument(
-        "-d",
-        "--delta_mult",
-        type=int,
-        default=1,
-        help="Delta multiplier for adjustments. Defaults to 1.",
-    )
-    parser.add_argument(
-        "-t",
-        "--threshold",
-        type=float,
-        default=1e-2,
-        help="Threshold value for experiments. Defaults to 0.01.",
-    )
-    parser.add_argument(
-        "-s",
-        "--save_each",
-        type=int,
-        default=1,
-        help="Frequency to save results, e.g., every n iterations. Defaults to 1.",
-    )
-    parser.add_argument(
-        "-i",
-        "--inputs",
-        type=int,
-        help="Number of inputs per experiment (required if --default is not set).",
-    )
-    parser.add_argument(
-        "-r",
-        "--repeat",
-        type=int,
-        default=1,
-        help="Number of repetitions per input. Defaults to 1.",
-    )
-    parser.add_argument(
-        "-p",
-        "--patches",
-        choices=["all", "one", "q1", "q2", "q3", "target-word"],
-        help=(
-            "Patch exploration mode (required if --default is not set). Options: 'all', 'one', 'q1', 'q2', 'q3', or "
-            "'target-word'. The latter is specific to text-based experiments like Winobias."
-        ),
-    )
-    parser.add_argument(
-        "-v",
-        "--vocab_tokens",
-        type=int,
-        choices=range(1, 101),
-        default=1,
-        help="Percentage of vocabulary tokens (1-100) for text experiments. Required for text-based experiments.",
-    )
-
-    # Data and model paths
-    parser.add_argument(
-        "-od",
-        "--orig_data_dir",
-        type=str,
-        help="Directory containing original input data (required if --default is not set).",
-    )
-    parser.add_argument(
-        "-mp",
-        "--model_path",
-        type=str,
-        help="Path to the model directory or Huggingface model name (required if --default is not set).",
-    )
-    parser.add_argument(
-        "-ed",
-        "--exp_dir",
-        type=str,
-        help="Directory to save configuration and output data (required if --default is not set).",
-    )
-    parser.add_argument(
-        "-o",
-        "--objective",
-        choices=["cls", "mlm"],
-        default="cls",
-        help="Model task: 'cls' (classification) or 'mlm' (masked language model). Defaults to 'cls'.",
-    )
-
-    # Device and other options
     parser.add_argument(
         "--device",
         type=str,
         help="Device for computation (e.g., 'cuda', 'cpu'). Auto-detected if unspecified.",
     )
-    parser.add_argument(
-        "--cap-ex",
-        action="store_true",
-        default=True,
-        help="Enable or disable capped execution. Defaults to enabled.",
-    )
-
-    parser.add_argument(
-        "--theoretical-min-max",
-        action="store_true",
-        default=True,
-        help="If set, the experiments will use min and max values for capping embeddings taken from the used model. If not set, the experiments will use min and max values computed on experimentd data.",
-    )
 
     return parser, parser.parse_args()
+
+
+def get_user_input(prompt, default=None, choices=None, multiple=False):
+    """
+    Interactive function to get user input with a default option and multiple-choice support.
+
+    Args:
+        prompt (str): The question to ask the user.
+        default (any, optional): Default value if the user presses Enter.
+        choices (list, optional): List of allowed choices.
+        multiple (bool, optional): Whether to allow multiple values (comma-separated).
+
+    Returns:
+        str or list: User input as a string or list of choices.
+    """
+    while True:
+        user_input = input(
+            f"{prompt} {'(default: ' + str(default) + ')' if default is not None else ''}: "
+        ).strip()
+
+        if not user_input and default is not None:
+            return default
+
+        if multiple:
+            # Handle case where input is either a single value or a comma-separated list
+            user_choices = [item.strip() for item in user_input.split(",")]
+
+            # If there's only one input value, treat it as a list of one
+            if len(user_choices) == 1:
+                return user_choices[0]
+
+            if choices and not all(choice in choices for choice in user_choices):
+                print(f"Invalid choices! Available options: {choices}")
+                continue
+
+            return user_choices
+
+        if choices and user_input not in choices:
+            print(f"Invalid choice! Available options: {choices}")
+            continue
+
+        return user_input
+
+
+def interactive_argument_parser():
+    """
+    Interactive argument input instead of command-line parsing.
+
+    Returns:
+        dict: Parsed arguments as a dictionary.
+    """
+    args = {}
+
+    print("\nWelcome to the interactive experiment setup!")
+    print("Press Enter to use the default value where available.")
+
+    args["exp_name"] = get_user_input("Experiment name")
+    args["algo"] = get_user_input(
+        "Algorithm(s)",
+        default=["both"],
+        choices=["simec", "simexp", "both"],
+        multiple=True,
+    )
+    args["iterations"] = int(get_user_input("Number of iterations", default=5000))
+
+    # Fixing the issue for 'multiple=True' for delta_mult
+    delta_mult_input = get_user_input("Delta multiplier", default=1, multiple=True)
+    if isinstance(delta_mult_input, list):
+        args["delta_mult"] = [int(x) for x in delta_mult_input]
+    else:
+        args["delta_mult"] = [int(delta_mult_input)]  # Single value, but in a list
+
+    args["threshold"] = float(get_user_input("Threshold value", default=0.01))
+    args["save_each"] = int(
+        get_user_input("Save results every n iterations", default=1)
+    )
+    args["inputs"] = int(get_user_input("Number of inputs per experiment", default=20))
+    args["repeat"] = int(get_user_input("Number of repetitions", default=5))
+
+    args["patches"] = get_user_input(
+        "Patch mode(s)",
+        default=["all"],
+        choices=["all", "one", "q1", "q2", "q3", "target-word"],
+        multiple=True,
+    )
+
+    args["orig_data_dir"] = get_user_input("Original data directory")
+    args["model_path"] = get_user_input("Model path")
+    args["exp_dir"] = get_user_input("Experiment directory")
+    args["objective"] = get_user_input(
+        "Objective", default="cls", choices=["cls", "mlm"]
+    )
+
+    args["cap_ex"] = (
+        get_user_input(
+            "Enable capped execution? (yes/no)", default="yes", choices=["yes", "no"]
+        )
+        == "yes"
+    )
+
+    args["sample_images"] = (
+        get_user_input(
+            "Sample 100% new images? (yes/no)", default="no", choices=["yes", "no"]
+        )
+        == "yes"
+    )
+
+    args["theoretical_min_max"] = (
+        get_user_input(
+            "Use theoretical min/max? (yes/no)", default="yes", choices=["yes", "no"]
+        )
+        == "yes"
+    )
+
+    return args
 
 
 if __name__ == "__main__":
@@ -451,101 +561,8 @@ if __name__ == "__main__":
     dev = torch.device(args.device)
 
     if not args.default:
-        # Validate mandatory arguments for individual experiments
-        missing_args = []
-        required_args = [
-            ("-ed/--exp_dir", args.exp_dir),
-            ("-mp/--model_path", args.model_path),
-            ("-od/--orig_data_dir", args.orig_data_dir),
-            ("-p/--patches", args.patches),
-            ("-i/--inputs", args.inputs),
-            ("-n/--iterations", args.iterations),
-            ("-e/--exp_name", args.exp_name),
-        ]
-        for name, value in required_args:
-            if value is None:
-                missing_args.append(name)
-
-        if missing_args:
-            argparser.error(
-                f"--default option not selected: preparing individual experiment. The following arguments are required: {', '.join(missing_args)}"
-            )
-
-        if (
-            not any(k in args.orig_data_dir for k in ["cifar", "mnist"])
-            and args.objective is None
-        ):
-            argparser.error(
-                "You have to specify the objective for BERT experiments [mlm or cls]. The following argument is required: --objective."
-            )
-
-        if any(k in args.orig_data_dir for k in ["cifar", "mnist"]):
-            model_filename = next(
-                f for f in os.listdir(args.model_path) if f.endswith(".pt")
-            )
-            mdl, _ = load_model(
-                model_path=os.path.join(args.model_path, model_filename),
-                config_path=os.path.join(args.model_path, "config.json"),
-                device=dev,
-            )
-            deactivate_dropout_layers(mdl)
-            tkn = None
-            if "cifar" in args.orig_data_dir:
-                means = CIFAR_MEAN
-                sds = CIFAR_STD
-            else:
-                means = [
-                    MNIST_MEAN,
-                ]
-                sds = [
-                    MNIST_STD,
-                ]
-        else:
-            tkn, mdl = load_bert_model(
-                args.model_path, mask_or_cls=args.objective, device=dev
-            )
-            deactivate_dropout_layers(mdl)
-            means = [0.0]
-            sds = [1.0]
-
-        if not args.theoretical_min_max:
-            print("Measuring input space distribution...")
-            min_embeddings, max_embeddings = measure_embedding_distribution(
-                data_dir=args.orig_data_dir,
-                model=mdl,
-                objective=args.objective or None,
-                tokenizer=tkn,
-                device=dev,
-            )
-        else:
-            print("Using theoretical min and max values for capping embeddings.")
-            min_embeddings, max_embeddings = compute_embedding_boundaries(
-                model=mdl, means=means, sds=sds
-            )
-
-        # Prepare experiment directory and configuration
-        experiment_dir = os.path.join(args.exp_dir, args.exp_name)
-        input_type = generate_experiment(
-            input_path=args.orig_data_dir,
-            exp_dir=experiment_dir,
-            n_inputs=args.inputs,
-            patch_option=args.patches,
-        )
-
-        # Prepare configuration
-        parameters = vars(args)
-        if input_type != "txt":
-            parameters.pop("vocab_tokens", None)
-        else:
-            parameters["vocab_tokens"] = [parameters["vocab_tokens"]]
-
-        save_json(os.path.join(experiment_dir, "parameters.json"), parameters)
-        save_object(
-            min_embeddings.cpu(), os.path.join(experiment_dir, "min_distribution.pkl")
-        )
-        save_object(
-            max_embeddings.cpu(), os.path.join(experiment_dir, "max_distribution.pkl")
-        )
+        args = interactive_argument_parser()
+        generate_experiment_combinations(args, dev)
     else:
         # Generate default experiments
         print("Generating default experiments...")
@@ -562,11 +579,12 @@ if __name__ == "__main__":
             "threshold": 0.01,  # Default threshold for experiments
             "save_each": 1,  # Frequency of saving results after iterations
             "inputs": None,  # Number of inputs per experiment (to be defined later)
-            "repeat": None,  # Number of times to repeat experiments (to be determined dynamically)
+            "repeat": 5,  # Number of times to repeat experiments (to be determined dynamically)
             "patches": None,  # Patch exploration options (set dynamically)
             "objective": "cls",  # Default model objective: classification
-            "exploration_capping": args.cap_ex,  # If True, embeddings are capped during exploration, otherwise they are capped at interpretation
-            "theoretical_min_max": args.theoretical_min_max,  # If True, the distribution used to cap the embeddings are taken from the model's theoretical min and max. Otherwise, min and max are computed on the experiment inputs
+            "exploration_capping": True,  # If True, embeddings are capped during exploration, otherwise they are capped at interpretation
+            "theoretical_min_max": True,  # If True, the distribution used to cap the embeddings are taken from the model's theoretical min and max. Otherwise, min and max are computed on the experiment inputs
+            "sample_images": False,
         }
 
         # Define specific experiments with fixed configurations
@@ -599,7 +617,7 @@ if __name__ == "__main__":
 
         # Define parameter variations to iterate through
         DELTA_MULT_VALUES = [1, 5]
-        INPUT_VALUES = [10, 2] if args.test else [200, 20]
+        INPUT_VALUES = 10 if args.test else 200
         PATCH_OPTIONS = ["all", "one", "q1", "q2", "q3"]
 
         # Iterate through predefined experiments and generate configurations
@@ -608,134 +626,13 @@ if __name__ == "__main__":
             base_experiment = copy.deepcopy(BASE_EXPERIMENT)
             base_experiment.update(exp_overrides)
 
-            if any(k in base_experiment["exp_name"] for k in ["cifar", "mnist"]):
-                model_filename = next(
-                    f
-                    for f in os.listdir(base_experiment["model_path"])
-                    if f.endswith(".pt")
-                )
-                mdl, _ = load_model(
-                    model_path=os.path.join(
-                        base_experiment["model_path"], model_filename
-                    ),
-                    config_path=os.path.join(
-                        base_experiment["model_path"], "config.json"
-                    ),
-                    device=dev,
-                )
-                deactivate_dropout_layers(mdl)
-                tkn = None
-                if "cifar" == base_experiment["exp_name"]:
-                    means = CIFAR_MEAN
-                    sds = CIFAR_STD
-                else:
-                    means = [
-                        MNIST_MEAN,
-                    ]
-                    sds = [
-                        MNIST_STD,
-                    ]
-            else:
-                tkn, mdl = load_bert_model(
-                    base_experiment["model_path"],
-                    mask_or_cls=base_experiment["objective"],
-                    device=dev,
-                )
-                deactivate_dropout_layers(mdl)
-                means = [0.0]
-                sds = [1.0]
+            generate_experiment_combinations(
+                base_experiment,
+                dev,
+                DELTA_MULT_VALUES,
+                PATCH_OPTIONS,
+                INPUT_VALUES,
+                args.test,
+            )
 
-            if not args.theoretical_min_max:
-                print("Measuring input space distribution...")
-                min_embeddings, max_embeddings = measure_embedding_distribution(
-                    data_dir=args.orig_data_dir,
-                    model=mdl,
-                    objective=args.objective or None,
-                    tokenizer=tkn,
-                    device=dev,
-                )
-            else:
-                print("Using theoretical min and max values for capping embeddings.")
-                min_embeddings, max_embeddings = compute_embedding_boundaries(
-                    model=mdl, means=means, sds=sds
-                )
-
-            # Iterate over input configurations
-            for n_input in INPUT_VALUES:
-                base_experiment["inputs"] = n_input
-                # Define repetition based on input size and test mode
-                base_experiment["repeat"] = (
-                    1 if n_input in [200, 10] else (5 if args.test else 10)
-                )
-                # Initialize variable for fixed sample tracking (test mode)
-                sample = None
-
-                # Iterate over delta multiplier values
-                for delta in DELTA_MULT_VALUES:
-                    base_experiment["delta_mult"] = delta
-
-                    # Define patch exploration options (or use specific ones for targeted experiments)
-                    patch_list = (
-                        [base_experiment["patches"]]
-                        if base_experiment["patches"] == "target-word"
-                        else PATCH_OPTIONS
-                    )
-
-                    # Iterate over patch options
-                    for patch_opt in patch_list:
-                        base_experiment["patches"] = patch_opt
-
-                        # Construct a descriptive name for the experiment
-                        exp_name_full = f"{base_experiment['exp_name']}-{delta}-{n_input}-{patch_opt}"
-                        if args.test:
-                            exp_name_full = "test/" + exp_name_full
-
-                        experiment_dir = os.path.join("experiments_data", exp_name_full)
-
-                        # Generate experiment inputs and save parameters
-                        if args.test:
-                            # Ensure at least 20% of inputs remain fixed for test comparisons
-                            if sample:
-                                generate_experiment(
-                                    input_path=base_experiment["orig_data_dir"],
-                                    exp_dir=experiment_dir,
-                                    n_inputs=n_input,
-                                    patch_option=patch_opt,
-                                    fixed_inputs=sample,
-                                )
-                            else:
-                                _, sample = generate_experiment(
-                                    input_path=base_experiment["orig_data_dir"],
-                                    exp_dir=experiment_dir,
-                                    n_inputs=n_input,
-                                    patch_option=patch_opt,
-                                )
-                        else:
-                            generate_experiment(
-                                input_path=base_experiment["orig_data_dir"],
-                                exp_dir=experiment_dir,
-                                n_inputs=n_input,
-                                patch_option=patch_opt,
-                            )
-
-                        # Filter out parameters with None values for saving
-                        filtered_experiment = {
-                            k: v for k, v in base_experiment.items() if v is not None
-                        }
-                        save_json(
-                            os.path.join(experiment_dir, "parameters.json"),
-                            filtered_experiment,
-                        )
-                        save_object(
-                            obj=min_embeddings.cpu(),
-                            filename=os.path.join(
-                                experiment_dir, "min_distribution.pkl"
-                            ),
-                        )
-                        save_object(
-                            obj=max_embeddings.cpu(),
-                            filename=os.path.join(
-                                experiment_dir, "max_distribution.pkl"
-                            ),
-                        )
         print("Done")
