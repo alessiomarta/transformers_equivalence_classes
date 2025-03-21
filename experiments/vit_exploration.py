@@ -202,7 +202,7 @@ def main():
                         threshold=params["threshold"],
                         delta_multiplier=params["delta_mult"],
                         n_iterations=n_iterations,
-                        pred_id=config[names[idx]]["objective"],
+                        pred_id=pred_id,
                         eq_class_emb_ids=(
                             None
                             if config[names[idx]]["explore"] == []

@@ -40,7 +40,7 @@ def save_object(obj, filename):
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 
-def jacobian(nn_input: torch.Tensor, nn_output: torch.Tensor = None, model: torch.nn.Module = None):
+def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None):
     """
     Computes the full Jacobian matrix of the neural network output with respect
     to its input.
@@ -69,7 +69,6 @@ def jacobian(nn_input: torch.Tensor, nn_output: torch.Tensor = None, model: torc
 def pullback(
     input_simec: torch.Tensor,
     g: torch.Tensor,
-    output_simec: torch.Tensor = None,
     model: torch.nn.Module = None,
     eq_class_emb_ids: List[List[int]] = None,
 ):
@@ -91,7 +90,7 @@ def pullback(
         Tuple[torch.Tensor, torch.Tensor]: Eigenvalues and eigenvectors of the
         pullback metric tensor.
     """
-    jac = jacobian(input_simec, output_simec, model)
+    jac = jacobian(input_simec, model)
     # jac.shape = (batch_size, output_size, N_patches+1, embedding_size)
     while jac.dim() < 4:
         jac = torch.unsqueeze(jac, 0)
@@ -180,7 +179,6 @@ def pullback_eigenvalues(
 
     # Compute the pullback metric and its eigenvalues and eigenvectors
     eigenvalues, _ = pullback(
-        output_simec=output_emb[0, pred_id].squeeze(),
         input_simec=input_emb,
         g=g,
     )
@@ -215,6 +213,7 @@ def explore(
     capping: bool = False,
     distance=None,
     start_iteration=0,
+    dtype = torch.float16
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -251,7 +250,7 @@ def explore(
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.to(device, dtype=dtype).requires_grad_(True)
     # input_emb.shape = (batch_size, N_patches+1, embedding_size)
-    output_emb = model.model.encoder(input_emb)[0]
+    #output_emb = model.model.encoder(input_emb)[0]
     # output_emb.shape = (batch_size, N_classes)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
@@ -295,7 +294,6 @@ def explore(
         # Compute the pullback metric and its eigenvalues and eigenvectors
         eigenvalues, eigenvectors = pullback(
             input_simec=input_emb,
-            #output_simec=torch.index_select(output_emb, dim = 1, index = pred_id),
             model = model,
             g=g,
             eq_class_emb_ids=None if not eq_class_emb_ids else eq_class_emb_ids,
@@ -377,7 +375,7 @@ def explore(
         torch.cuda.empty_cache()
         gc.collect()
         input_emb = input_emb.to(device, dtype = dtype).requires_grad_(True)
-        output_emb = model.model.encoder(input_emb)[0]
+        #output_emb = model.model.encoder(input_emb)[0]
 
         times["time"] += time.time() - tic
         if i % save_each == 0:
@@ -390,7 +388,6 @@ def explore(
         save_object(
             {
                 "input_embedding": input_emb.cpu(),
-                "output_embedding": output_emb.cpu(),
                 "distance": distance.cpu(),
                 "iteration": i,
                 "time": times["time"],
