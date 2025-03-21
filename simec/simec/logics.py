@@ -14,10 +14,25 @@ from collections import defaultdict
 import pickle
 from numpy import around
 import torch
-
+from torch.func import vmap, jacrev
+import gc
+os.environ['PYTORCH_CUDA_ALLOC_CONF'] = "expandable_segments:True"
 
 class ExplorationException(Exception):
     pass
+
+class OutputOnlyModel(torch.nn.Module):
+
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+
+        self.model = model
+
+    def forward(self, X: torch.Tensor):
+
+        encoder_output, _ = self.model.encoder(X)
+
+        return self.model.classifier(encoder_output[:, 0])
 
 
 def save_object(obj, filename):
@@ -25,7 +40,7 @@ def save_object(obj, filename):
         pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
 
 
-def jacobian(nn_output: torch.Tensor, nn_input: torch.Tensor):
+def jacobian(nn_input: torch.Tensor, nn_output: torch.Tensor = None, model: torch.nn.Module = None):
     """
     Computes the full Jacobian matrix of the neural network output with respect
     to its input.
@@ -42,20 +57,21 @@ def jacobian(nn_output: torch.Tensor, nn_input: torch.Tensor):
         partial derivatives of each output element with respect to each input element.
     """
 
-    return torch.stack(
-        [
-            torch.autograd.grad([nn_output[i]], nn_input, retain_graph=True)[0]
-            for i in range(nn_output.size(0))
-        ],
-        dim=-1,
-    )[0].detach()
+    # nn_input.shape = (batch_size, N_patches+1, embedding_size)
+    batch_jacobian = torch.stack([
+        jacrev(model)(x)
+    for x in nn_input.split(1)])
+    # batch_jacobian.shape = (batch_size, output_size, (N_patches+1), embedding_size)
+
+    return torch.squeeze(batch_jacobian, dim = list(range(1,batch_jacobian.dim())))
 
 
 def pullback(
     input_simec: torch.Tensor,
-    output_simec: torch.Tensor,
     g: torch.Tensor,
-    eq_class_emb_ids: List[int] = None,
+    output_simec: torch.Tensor = None,
+    model: torch.nn.Module = None,
+    eq_class_emb_ids: List[List[int]] = None,
 ):
     """
     Computes the pullback metric tensor using the given input and output embeddings and a metric tensor g.
@@ -65,22 +81,54 @@ def pullback(
         output_simec (torch.Tensor): Output embeddings tensor derived from the
         input embeddings.
         g (torch.Tensor): Metric tensor g used as the Riemannian metric in the
-        output space.
+        output space, of size (batch_size, embedding_size, embedding_size).
         eq_class_emb_ids (List[int], optional): Indices of embeddings to be
         considered for the pullback. If provided, restricts the computation to
         these embeddings.
+        model (torch.nn.Module): Model to compute the Jacobian of.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Eigenvalues and eigenvectors of the
         pullback metric tensor.
     """
-    jac = jacobian(output_simec, input_simec)
+    jac = jacobian(input_simec, output_simec, model)
+    # jac.shape = (batch_size, output_size, N_patches+1, embedding_size)
+    while jac.dim() < 4:
+        jac = torch.unsqueeze(jac, 0)
+
     if eq_class_emb_ids:
-        jac = jac[eq_class_emb_ids]
-    jac_t = torch.transpose(jac, -2, -1)
-    tmp = torch.bmm(jac, g)
-    pullback_metric = torch.bmm(tmp, jac_t).type(torch.double)
-    return torch.linalg.eigh(pullback_metric, UPLO="U")
+        # Select idsand pad if necessary
+        max_len = max(map(len, eq_class_emb_ids))
+        jac = torch.stack(
+            [
+                torch.nn.functional.pad(jac[i,:,L,:], (0,0,0,max_len-len(L)))
+            for i,L in enumerate(eq_class_emb_ids)]
+        )
+        # jac.shape = (batch_size, output_size, len(eq_class_emb_ids), embedding_size)
+
+    with torch.no_grad():
+        jac = torch.transpose(jac, 1, 2)
+        jac = torch.flatten(jac, end_dim = 1)
+        # jac.shape = (batch_size*len(eq_class_emb_ids), output_size, embedding_size)
+        jac_t = torch.transpose(jac, -2, -1)
+        # jac_t.shape = (batch_size*len(eq_class_emb_ids), embedding_size, output_size)
+
+        # g.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+        tmp = torch.bmm(jac_t, torch.flatten(g, end_dim=1))
+        # tmp.shape = (batch_size*len(eq_class_emb_ids), embedding_size, output_size)
+        pullback_metric = torch.bmm(tmp, jac).float()
+        # pullback_metric.shape = (batch_size*len(eq_class_emb_ids), embedding_size, embedding_size)
+
+        pullback_metric = torch.stack(
+            torch.chunk(pullback_metric, input_simec.shape[0])
+        )
+        # pullback_metric.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+        
+        eigenvalues, eigenvectors = torch.linalg.eigh(pullback_metric, UPLO="U")
+        # eigenvalues.shape = (batch_size, len(eq_class_emb_ids), embedding_size)
+        # eigenvectors.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+
+    return eigenvalues, eigenvectors
 
 
 def pullback_eigenvalues(
@@ -110,20 +158,25 @@ def pullback_eigenvalues(
 
     tic = time.time()
 
+    model = OutputOnlyModel(model)
+
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb = model(input_emb)[0].to(device)
+    # input_emb.shape = (batch_size, sequence_len, embedding_size)
+    output_emb = model.model.encoder(input_emb).to(device)
+    # output_emb.shape = (batch_size, output_size)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
         torch.eye(input_embedding.size(-1))
         .unsqueeze(0)
         .repeat(
-            output_emb.size(1),
+            output_emb.size(0),
             1,
             1,
         )
     ).to(device)
+    # g.shape = (batch_size, embedding_size, embedding_size)
 
     # Compute the pullback metric and its eigenvalues and eigenvectors
     eigenvalues, _ = pullback(
@@ -154,12 +207,13 @@ def explore(
     n_iterations: int,
     pred_id: int,
     device: torch.device,
-    eq_class_emb_ids: List[int] = None,
+    eq_class_emb_ids: List[List[int]] = None,
     min_embeddings: torch.Tensor = None,
     max_embeddings: torch.Tensor = None,
     save_each: int = 10,
     out_dir: str = ".",
     capping: bool = False,
+    dtype = torch.bfloat16
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -189,122 +243,151 @@ def explore(
         raise ExplorationException(
             "Capping is set but no minimum distribution embeddings or maximum distribution embeddings were passed."
         )
+    
+    eps = 1e-9
 
+    model = OutputOnlyModel(model.to(device, dtype = dtype))
     # Clone and require gradient of the embedded input and prepare for the first iteration
-    input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    output_emb = model(input_emb)[0].to(device)
+    input_emb = input_embedding.to(device, dtype=dtype).requires_grad_(True)
+    # input_emb.shape = (batch_size, N_patches+1, embedding_size)
+    output_emb = model.model.encoder(input_emb)[0]
+    # output_emb.shape = (batch_size, N_classes)
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
     g = (
-        torch.eye(input_embedding.size(-1))
+        torch.eye(model.model.num_classes)
+        .unsqueeze(0)
         .unsqueeze(0)
         .repeat(
-            input_emb.size(1) if not eq_class_emb_ids else len(eq_class_emb_ids),
+            input_emb.size(0),
+            input_emb.size(1),
             1,
             1,
         )
-    ).to(device)
+    ).to(device, dtype = dtype)
+    # g.shape = (batch_size, N_patches+1, embedding_size, embedding_size)
+
+    # Select eq_class_emb_ids in g and pad to the maximum length if necessary
+    if eq_class_emb_ids:
+        max_len = max(map(len, eq_class_emb_ids))
+        g = torch.stack(
+            [
+                torch.nn.functional.pad(g[i,L,:,:], (0,0,0,0,0,max_len-len(L))) 
+            for i,L in enumerate(eq_class_emb_ids)]
+        )
 
     # Keep track of the length of the polygonal
     distance = torch.zeros(
-        input_emb.size(1) if not eq_class_emb_ids else len(eq_class_emb_ids)
-    ).to(device)
+        g.size(0),
+        g.size(1)
+    ).to(dtype = dtype)
 
     times = defaultdict(float)
     times["n_iterations"] = n_iterations
+    pred_id = torch.tensor(pred_id).to(device)
 
     for i in range(n_iterations):
         tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
         eigenvalues, eigenvectors = pullback(
-            output_simec=output_emb[0, pred_id].squeeze(),
             input_simec=input_emb,
+            #output_simec=torch.index_select(output_emb, dim = 1, index = pred_id),
+            model = model,
             g=g,
             eq_class_emb_ids=None if not eq_class_emb_ids else eq_class_emb_ids,
         )
 
+        # Detach values to reduce CUDA memory consumption
+        input_emb = input_emb.detach().cpu()
+        eigenvalues = eigenvalues.detach().cpu()
+        # eigenvalues.shape = (batch_size, len(eq_class_emb_ids), embedding_size)
+        eigenvectors = eigenvectors.detach().cpu()
+        # eigenvectors.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+
         # Select a random eigenvectors corresponding to a null eigenvalue.
         # We consider an eigenvalue null if it is below a threshold value.
         if same_equivalence_class:  # simec
-            number_eigenvalues = torch.count_nonzero(eigenvalues < threshold, dim=1)
+            number_eigenvalues = torch.count_nonzero(eigenvalues < threshold, dim=-1)
         else:  # simexp
-            number_eigenvalues = torch.count_nonzero(eigenvalues > threshold, dim=1)
-        eigenvecs, eigenvals = [], []
-        for emb in range(eigenvalues.size(0)):
-            if number_eigenvalues[emb]:
-                id_eigen = torch.randint(0, number_eigenvalues[emb], (1,)).item()
-                eigenvecs.append(
-                    eigenvectors[emb, :, id_eigen].type(torch.float).to(device)
-                )
-                eigenvals.append(
-                    eigenvalues[emb, id_eigen].type(torch.float).to(device)
-                )
-            else:
-                eigenvecs.append(
-                    torch.zeros(eigenvectors.size(-1)).type(torch.float).to(device)
-                )
-                eigenvals.append(torch.tensor(0).type(torch.float).to(device))
-        eigenvecs = torch.stack(eigenvecs, dim=0).to(device)
-        eigenvals = torch.stack(eigenvals, dim=0).to(device)
+            number_eigenvalues = torch.count_nonzero(eigenvalues > threshold, dim=-1)
+        # number_eigenvalues = (batch_size, len(eq_class_emb_ids))
+
+        ids_eigenvals = torch.round(torch.rand_like(number_eigenvalues.float()) * number_eigenvalues.float()).to(dtype = torch.int64).unsqueeze(-1) - 1 # equal to randint for each element
+
+        # Choice of eigenvalues and eigenvectors
+        selected_eigenvals = torch.where(
+            ids_eigenvals >= 0, 
+            torch.gather(eigenvalues, -1, torch.clamp(ids_eigenvals, 0, ids_eigenvals.max())), 
+            0.0
+        ).squeeze(-1)
+        # selected_eigenvals.shape = (batch_size, len(eq_class_emb_ids))
+        ids_eigenvecs = ids_eigenvals.unsqueeze(-1).repeat(1,1,eigenvectors.size(-2),1)
+        selected_eigenvecs = torch.where(
+            ids_eigenvecs >= 0,
+            torch.gather(eigenvectors, -1, torch.clamp(ids_eigenvecs, 0, ids_eigenvecs.max())),
+            0.0
+        ).squeeze(-1)
+        # selected_eigenvecs.shape = (batch_size, len(eq_class_emb_ids), embedding_size)
 
         with torch.no_grad():
             # Proceeed along a null direction
-            delta = (
-                torch.tensor(delta_multiplier) / torch.sqrt(torch.max(eigenvalues))
-            ).to(device)
+            root_max_lambda = torch.sqrt(eigenvalues.max(dim = -1)[0].max(dim = -1, keepdim = True)[0])
+            delta = delta_multiplier * torch.ones_like(root_max_lambda) / (root_max_lambda + eps)
+            # delta.shape = (batch_size, 1)
 
             if eq_class_emb_ids:
-                input_emb[0, eq_class_emb_ids] = (
-                    input_emb[0, eq_class_emb_ids] + eigenvecs * delta
-                )
+                input_emb[:, eq_class_emb_ids, :] = input_emb[:, eq_class_emb_ids, :] + delta.unsqueeze(-1)*selected_eigenvecs
             else:
-                input_emb[0] = input_emb[0] + eigenvecs * delta
-            distance += eigenvals * delta
+                input_emb = input_emb + delta.unsqueeze(-1)*selected_eigenvecs
 
-        # cap embedding, if specified
-        if capping:
-            if input_emb.size() == min_embeddings.size():
-                input_emb[input_emb < min_embeddings] = min_embeddings[
-                    input_emb < min_embeddings
-                ]
-                input_emb[input_emb > max_embeddings] = max_embeddings[
-                    input_emb > max_embeddings
-                ]
-        # Prepare for next iteration
-        input_emb = input_emb.to(device).requires_grad_(True)
-        output_emb = model(input_emb)[0].to(device)
+            distance += selected_eigenvals * delta
+            # cap embedding, if specified
+            if capping:
+                input_emb = torch.clamp(
+                    input_emb,
+                    min_embeddings.unsqueeze(0).repeat(input_emb.size(0), 1, 1),
+                    max_embeddings.unsqueeze(0).repeat(input_emb.size(0), 1, 1)
+                )
+
+        # Save
         if i % save_each == 0:
             tic_save = time.time()
-            print(f"Iteration: {i}\tDelta: {around(delta.cpu().numpy(), 5)}")
-            if not os.path.exists(out_dir):
-                os.makedirs(out_dir)
-            save_object(
-                {
-                    "input_embedding": input_emb.cpu(),
-                    "output_embedding": output_emb.cpu(),
-                    "distance": distance.cpu(),
-                    "iteration": i,
-                    "time": tic_save - tic,
-                    "delta": delta.cpu(),
-                },
-                os.path.join(out_dir, f"{i}.pkl"),
-            )
+            print(f"Iteration: {i}\tDelta: {around(delta.numpy().flatten(), 5)}")
+            
+            for obj in range(input_emb.size(0)):
+                os.makedirs(out_dir[obj], exist_ok=True)
+                save_object(
+                    {
+                        "input_embedding": input_emb[obj],
+                        "distance": distance[obj].cpu(),
+                        "iteration": i,
+                        "time": tic_save - tic,
+                        "delta": delta,
+                    },
+                    os.path.join(out_dir[obj], f"{i}.pkl"),
+                )
             diff = time.time() - tic_save
+            
+        # Prepare for next iteration
+        del eigenvalues, eigenvectors
+        torch.cuda.empty_cache()
+        gc.collect()
+        input_emb = input_emb.to(device, dtype = dtype).requires_grad_(True)
+        output_emb = model.model.encoder(input_emb)[0]
 
         times["time"] += time.time() - tic
         if i % save_each == 0:
             times["time"] -= diff
 
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-    save_object(
-        {
-            "input_embedding": input_emb.cpu(),
-            "output_embedding": output_emb.cpu(),
-            "distance": distance.cpu(),
-            "iteration": n_iterations,
-            "time": times["time"],
-            "delta": delta.cpu(),
-        },
-        os.path.join(out_dir, f"{n_iterations}.pkl"),
-    )
+    for obj in range(input_emb.size(0)):
+        save_object(
+            {
+                "input_embedding": input_emb[obj].cpu(),
+                "output_embedding": output_emb[obj].cpu(),
+                "distance": distance[obj].cpu(),
+                "iteration": n_iterations,
+                "time": times["time"],
+                "delta": delta.cpu(),
+            },
+            os.path.join(out_dir[obj], f"{n_iterations}.pkl"),
+        )

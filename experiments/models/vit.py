@@ -152,9 +152,11 @@ class Embeddings(nn.Module):
         # Expand the [CLS] token to the batch size
         # (1, 1, hidden_size) -> (batch_size, 1, hidden_size)
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)
+    
         # Concatenate the [CLS] token to the beginning of the input sequence
         # This results in a sequence length of (num_patches + 1)
         x = torch.cat((cls_tokens, x), dim=1)
+        # x.shape = (batch_size, N_patches+1, embedding_size)
         x = x + self.position_embeddings
         x = self.dropout(x)
         return x

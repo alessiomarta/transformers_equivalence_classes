@@ -10,7 +10,9 @@ import os
 import logging as log
 import time
 import torch
-from experiments.experiments_utils import (
+import sys
+sys.path.append("./experiments_data/")
+from experiments_utils import (
     load_and_transform_raw_images,
     deactivate_dropout_layers,
     load_model,
@@ -48,6 +50,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help="Where to run this experiment",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default = 64,
+        help="Batch size.",
+    )
     parser.add_argument("--cap-ex", default=True)
 
     arguments = parser.parse_args()
@@ -67,16 +75,17 @@ def main():
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
     images, names = load_and_transform_raw_images(args.experiment_path)
-    images = images.to(device)
+    #images = images.to(device)
+    batch_size = args.batch_size
 
     model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(
         model_path=os.path.join(params["model_path"], model_filename[0]),
         config_path=os.path.join(params["model_path"], "config.json"),
-        device=device,
+        device=torch.device("cpu"),
     )
     deactivate_dropout_layers(model)
-    model = model.to(device)
+    #model = model.to(device)
     str_time = time.strftime("%Y%m%d-%H%M%S")
     res_path = os.path.join(
         args.out_dir, os.path.basename(args.experiment_path) + "-" + str_time
@@ -85,8 +94,17 @@ def main():
         os.makedirs(res_path)
 
     input_patches = model.patcher(images)
-    patches_embeddings = list(
-        zip(input_patches, model.embedding(input_patches).unsqueeze(1))
+    # input_patches.shape = (len(images), N_patches, N_channels*kernel_size**2)
+    patches_embeddings = model.embedding(input_patches)
+    # patches_embedding.shape = (len(images), N_patches+1, embedding_size)
+
+    # Organize patch embeddings in a tensor dataset to load them
+    patches_embeddings = torch.utils.data.TensorDataset(patches_embeddings)
+    image_loader = torch.utils.data.DataLoader(
+        patches_embeddings,
+        batch_size=batch_size,
+        shuffle=False,
+        pin_memory=True
     )
 
     algorithms = ["simec"]
@@ -100,30 +118,36 @@ def main():
 
     for algorithm in algorithms:
         print(f"\t{algorithm.upper()} exploration phase")
-        for idx, (input_patches, input_embedding) in enumerate(patches_embeddings):
+        for idx, input_embedding in enumerate(image_loader):
+            # input_embedding[0].shape = (batch_size, N_patches+1, embedding_size)
+            image_indices = list(range(batch_size*idx, batch_size*(idx+1)))
+            file_names = [names[i] for i in image_indices]
+            
+            # Parameters
+            eq_class_emb_ids = [config[name]["explore"] for name in file_names]
+            if len(sum(eq_class_emb_ids, [])) == 0:
+                eq_class_emb_ids = None
+            pred_id = [config[name]["objective"] for name in file_names]
+                        
             for r in range(params["repeat"]):
                 print(
-                    f"Image: {names[idx]}\t{idx+1}/{len(images)}\tRepetition: {r+1}/{params['repeat']}"
+                    f"Image: {file_names}\tRepetition: {r+1}/{params['repeat']}"
                 )
                 try:
                     explore(
-                        same_equivalence_class=algorithm == "simec",
-                        input_embedding=input_embedding,
-                        model=model.encoder,
+                        same_equivalence_class=(algorithm == "simec"),
+                        input_embedding=input_embedding[0],
+                        model=model,
                         threshold=params["threshold"],
                         delta_multiplier=params["delta_mult"],
                         n_iterations=params["iterations"],
-                        pred_id=config[names[idx]]["objective"],
-                        eq_class_emb_ids=(
-                            None
-                            if config[names[idx]]["explore"] == []
-                            else config[names[idx]]["explore"]
-                        ),
+                        pred_id=pred_id,
+                        eq_class_emb_ids= eq_class_emb_ids,
                         device=device,
-                        out_dir=os.path.join(
+                        out_dir=[os.path.join(
                             res_path,
-                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
-                        ),
+                            f"{algorithm}-{name.split('.')[0]}-{str(r+1)}"
+                        ) for name in file_names],
                         save_each=params["save_each"],
                         capping=True,
                         min_embeddings=min_embs,
