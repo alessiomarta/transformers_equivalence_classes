@@ -1,7 +1,7 @@
 #!/bin/bash
 
 cd ..
-for dir in experiments_data/mnist_test/*; do
+for dir in experiments_data/mnist_test_20/*; do
     echo $dir
     if [[ "$dir" == *"cifar"* || "$dir" == *"mnist"* ]]; then
         python experiments/vit_exploration.py --experiment-path $dir --out-dir ../res
