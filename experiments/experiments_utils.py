@@ -24,7 +24,7 @@ sys.path.append(".")
 from models.vit import ViTForClassification
 from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
-def load_metadata_tensors(filename)
+def load_metadata_tensors(filename):
     with open(filename + "/metadata.json", "r") as f:  # Overwrites any existing file.
         metadata = json.load(f)
     numpy_tensors = load(filename + "/embeddings.npz")

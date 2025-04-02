@@ -87,6 +87,8 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
+    input_embedding = input_embedding.to(device)
+
     with torch.no_grad():
         width, height = original_image.shape[1:]
         model.eval()
@@ -99,8 +101,7 @@ def interpret(
             original_image_pred
         ).item()  # prediction from original image
         
-        with torch.no_grad():
-            output_embedding = model(input_embedding).to(device)
+        output_embedding, _ = model.encoder(input_embedding.unsqueeze(0))
 
         pred_proba = model.classifier(
             output_embedding[:, 0]
