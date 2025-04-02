@@ -20,8 +20,10 @@ from matplotlib.patches import Rectangle
 import torch
 from torchvision.utils import save_image
 from tqdm import tqdm
-from experiments.models.vit import PatchDecoder
-from experiments.experiments_utils import (
+import sys
+sys.path.append("./")
+from models.vit import PatchDecoder
+from experiments_utils import (
     load_and_transform_raw_images,
     deactivate_dropout_layers,
     load_model,
@@ -30,7 +32,7 @@ from experiments.experiments_utils import (
     load_json,
     collect_pkl_res_files,
 )
-from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
+from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 matplotlib.use("Agg")
 

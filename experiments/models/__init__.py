@@ -1,4 +1,5 @@
 __all__ = [
     "vit",
-    "train_vit"
+    "train_vit",
+    "const"
 ]

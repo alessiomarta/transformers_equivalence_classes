@@ -360,11 +360,11 @@ def explore(
                 os.makedirs(out_dir[obj], exist_ok=True)
                 save_object(
                     {
-                        "input_embedding": input_emb[obj],
-                        "distance": distance[obj].cpu(),
-                        "iteration": i,
-                        "time": tic_save - tic,
-                        "delta": delta,
+                        "input_embedding": input_emb[obj],  # array
+                        "distance": distance[obj].cpu(),    # float
+                        "iteration": i,                     # int
+                        "time": tic_save - tic,             # float
+                        "delta": delta,                     # float
                     },
                     os.path.join(out_dir[obj], f"{i}.pkl"),
                 )

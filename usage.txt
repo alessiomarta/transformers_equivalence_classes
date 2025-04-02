@@ -1,0 +1,14 @@
+1. Train ViT model
+
+cd experiments/models
+python3 train_vit.py --config cifar-config.json --dataset CIFAR10 --batch_size 64 --epochs 100 --lr 0.01 --save_every 25 --device cuda:0 --exp_name cifar10_experiment --base_dir ../../.. 
+python3 train_vit.py --config mnist-config.json --dataset MNIST --batch_size 64 --epochs 20 --lr 0.01 --save_every 5 --device cuda:0 --exp_name mnist_experiment --base_dir ../../.. 
+
+2. Convert images and texts in the expected format
+
+cd data-preprocessing
+bash main.sh
+
+3. Prepare experiments
+cd experiments
+python3 prepare_experiment.py --default

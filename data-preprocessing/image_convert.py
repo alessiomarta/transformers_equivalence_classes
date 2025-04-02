@@ -42,8 +42,8 @@ if __name__ == "__main__":
         os.makedirs("../data")
 
     test_sample_size = args.sample
-    data_dir = f"../../data/{args.dataset.lower()}_data"
-    base_dir = f"../../data/{args.dataset.lower()}_imgs"
+    data_dir = f"../data/{args.dataset.lower()}_data"
+    base_dir = f"../data/{args.dataset.lower()}_imgs"
 
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)

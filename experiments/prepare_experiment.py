@@ -5,7 +5,10 @@ import random
 import shutil
 import torch
 from transformers import logging
-from experiments.experiments_utils import (
+import sys
+sys.path.append("./")
+
+from experiments_utils import (
     save_json,
     load_json,
     load_model,
@@ -16,7 +19,7 @@ from experiments.experiments_utils import (
     save_object,
     compute_embedding_boundaries,
 )
-from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
+from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 
 def mask_random_word(sentences, mask_token, classification_token):
@@ -573,13 +576,13 @@ if __name__ == "__main__":
         BASE_EXPERIMENT = {
             "algo": "both",  # Default algorithm to run: both 'simec' and 'simexp'
             "iterations": (
-                10 if args.test else 20000
+                10 if args.test else 1000
             ),  # Number of iterations, shorter for test mode
             "delta_mult": None,  # Multiplier for delta adjustment
             "threshold": 0.01,  # Default threshold for experiments
-            "save_each": 1,  # Frequency of saving results after iterations
+            "save_each": 50,  # Frequency of saving results after iterations
             "inputs": None,  # Number of inputs per experiment (to be defined later)
-            "repeat": 5,  # Number of times to repeat experiments (to be determined dynamically)
+            "repeat": 3,  # Number of times to repeat experiments (to be determined dynamically)
             "patches": None,  # Patch exploration options (set dynamically)
             "objective": "cls",  # Default model objective: classification
             "exploration_capping": True,  # If True, embeddings are capped during exploration, otherwise they are capped at interpretation
@@ -617,8 +620,8 @@ if __name__ == "__main__":
 
         # Define parameter variations to iterate through
         DELTA_MULT_VALUES = [1, 5]
-        INPUT_VALUES = 10 if args.test else 200
-        PATCH_OPTIONS = ["all", "one", "q1", "q2", "q3"]
+        INPUT_VALUES = 10 if args.test else 50
+        PATCH_OPTIONS = ["all", "one", "q2"]
 
         # Iterate through predefined experiments and generate configurations
         for exp_name, exp_overrides in EXPERIMENTS.items():

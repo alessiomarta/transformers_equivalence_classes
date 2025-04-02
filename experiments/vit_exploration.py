@@ -11,7 +11,9 @@ import logging as log
 import time
 import torch
 import sys
+sys.path.append("./")
 sys.path.append("./experiments_data/")
+
 from experiments_utils import (
     load_and_transform_raw_images,
     deactivate_dropout_layers,
@@ -126,9 +128,9 @@ def main():
     deactivate_dropout_layers(model)
     model = model.to(device)
 
-    input_patches = model.patcher(images)
+    input_patches = model.patcher(images).to(device)
     # input_patches.shape = (len(images), N_patches, N_channels*kernel_size**2)
-    patches_embeddings = model.embedding(input_patches)
+    patches_embeddings = model.embedding(input_patches).cpu()
     # patches_embedding.shape = (len(images), N_patches+1, embedding_size)
 
     # Organize patch embeddings in a tensor dataset to load them
@@ -153,8 +155,8 @@ def main():
         print(f"\t{algorithm.upper()} exploration phase")
         for idx, input_embedding in enumerate(image_loader):
             # input_embedding[0].shape = (batch_size, N_patches+1, embedding_size)
-            image_indices = list(range(batch_size*idx, batch_size*(idx+1)))
-            file_names = [names[i] for i in image_indices]
+            image_indices = (batch_size*idx, batch_size*(idx+1))
+            file_names = names[image_indices[0]:image_indices[1]]
             
             # Parameters
             eq_class_emb_ids = [config[name]["explore"] for name in file_names]
@@ -169,45 +171,57 @@ def main():
                 try:
                     # load last iteration if continuing another experiment
                     if args.continue_from is not None:
-                        exp_dir = os.path.join(
-                            args.continue_from,
-                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
-                        )
-                        list_dir = os.listdir(exp_dir)
-                        pkl_files = [
-                            f
-                            for f in list_dir
-                            if os.path.splitext(os.path.basename(f))[0].isnumeric()
-                        ]
-                        last_pkl = load_object(
-                            os.path.join(
-                                exp_dir,
-                                sorted(pkl_files, key=lambda x: int(x.split(".")[0]))[
-                                    -1
-                                ],
+                        start_embeddings = []
+                        distance = []
+                        start_iteration = []
+                        for name in file_names:
+                            exp_dir = os.path.join(
+                                args.continue_from,
+                                f"{algorithm}-{name.split('.')[0]}-{str(r+1)}",
                             )
-                        )
-                        input_embedding = last_pkl["input_embedding"]
-                        distance = last_pkl["distance"]
+                            list_dir = os.listdir(exp_dir)
+                            pkl_files = [
+                                f
+                                for f in list_dir
+                                if os.path.splitext(os.path.basename(f))[0].isnumeric()
+                            ]
+                            last_pkl = load_object(
+                                os.path.join(
+                                    exp_dir,
+                                    sorted(pkl_files, key=lambda x: int(x.split(".")[0]))[
+                                        -1
+                                    ],
+                                )
+                            )
+                            start_embeddings.append(last_pkl["input_embedding"])
+                            distance.append(last_pkl["distance"])
+                            start_iteration.append(last_pkl['iteration'])
+
+                        start_embeddings = torch.stack(start_embeddings)
+                        distance = torch.stack(distance)
+                        start_iteration = min(start_iteration)
+
                     else:
-                        exp_dir = os.path.join(
-                            res_path,
-                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
-                        )
+                        exp_dir = [
+                            os.path.join(
+                                res_path,
+                                f"{algorithm}-{name.split('.')[0]}-{str(r+1)}",
+                            )
+                        for name in file_names]
                         distance = None
+                        start_embeddings = input_embedding[0]
+                        start_iteration = 0
+
+                    # Exploration
                     explore(
                         same_equivalence_class=(algorithm == "simec"),
-                        input_embedding=input_embedding[0],
+                        input_embedding=start_embeddings,
                         model=model,
                         threshold=params["threshold"],
                         delta_multiplier=params["delta_mult"],
                         n_iterations=n_iterations,
                         pred_id=pred_id,
-                        eq_class_emb_ids=(
-                            None
-                            if config[names[idx]]["explore"] == []
-                            else config[names[idx]]["explore"]
-                        ),
+                        eq_class_emb_ids=eq_class_emb_ids,
                         device=device,
                         out_dir=exp_dir,
                         save_each=params["save_each"],
@@ -223,7 +237,7 @@ def main():
                         "res_path: %s\nalgorithm: %s\nname: %s\nparams_repeat: %d\nError: %s",
                         exp_dir,
                         algorithm,
-                        names[idx],
+                        file_names,
                         r + 1,
                         e,
                         exc_info=True,

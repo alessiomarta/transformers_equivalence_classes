@@ -60,7 +60,7 @@ if __name__ == "__main__":
     model_name = args.model_path
     dataset_name = args.dataset.split("/")[-1]
     test_sample_size = args.sample
-    base_dir = f"../../data/{dataset_name}_txts"
+    base_dir = f"../data/{dataset_name}_txts"
     x_label = args.xlabel
     y_label = args.ylabel
     mask = args.mask

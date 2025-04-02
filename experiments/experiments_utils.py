@@ -7,7 +7,7 @@ configuring models, and manipulating model training states.
 import os
 import json
 import string
-from typing import Any, List, Tuple, Optional
+from typing import Any, List, Tuple
 import pickle
 import torch
 from torchvision import transforms
@@ -17,8 +17,11 @@ from transformers import (
     BertForSequenceClassification,
     BertTokenizerFast,
 )
-from experiments.models.vit import ViTForClassification
-from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
+
+import sys
+sys.path.append(".")
+from models.vit import ViTForClassification
+from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
 
 def collect_pkl_res_files(exploration_result_dir: str) -> list:
