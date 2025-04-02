@@ -17,12 +17,19 @@ from transformers import (
     BertForSequenceClassification,
     BertTokenizerFast,
 )
+from numpy import load
 
 import sys
 sys.path.append(".")
 from models.vit import ViTForClassification
 from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
+def load_metadata_tensors(filename)
+    with open(filename + "/metadata.json", "r") as f:  # Overwrites any existing file.
+        metadata = json.load(f)
+    numpy_tensors = load(filename + "/embeddings.npz")
+    tensor_dict = {k:torch.from_numpy(numpy_tensors[k]) for k in numpy_tensors.keys()}
+    return metadata | tensor_dict
 
 def collect_pkl_res_files(exploration_result_dir: str) -> list:
     """

@@ -31,6 +31,7 @@ from experiments_utils import (
     save_object,
     load_json,
     collect_pkl_res_files,
+    load_metadata_tensors,
 )
 from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
 
@@ -63,7 +64,6 @@ def interpret(
     model: torch.nn.Module,
     decoder: PatchDecoder,
     input_embedding: torch.Tensor,
-    output_embedding: torch.Tensor,
     iteration: int,
     eq_class_patch_ids: list,
     device: torch.device,
@@ -98,6 +98,9 @@ def interpret(
         json_stats["original_image_pred"] = torch.argmax(
             original_image_pred
         ).item()  # prediction from original image
+        
+        with torch.no_grad():
+            output_embedding = model(input_embedding).to(device)
 
         pred_proba = model.classifier(
             output_embedding[:, 0]
@@ -293,39 +296,40 @@ def main():
         patch_size=model.embedding.patch_size,
         model_embedding_layer=model.embedding,
     ).to(device)
-
-    pkl_results_paths = collect_pkl_res_files(args.results_dir)
+    
     img_extension = "." + names[0].split(".")[-1]  # to compose the image filename
-    for pkl_path in tqdm(pkl_results_paths, desc=args.results_dir):
-        res = load_object(pkl_path)
-        img_name = pkl_path.split("-")[-2] + img_extension
-        try:
-            interpret(
-                original_image=images[names.index(img_name)],
-                model=model.to(device),
-                decoder=decoder,
-                input_embedding=res["input_embedding"].to(device),
-                output_embedding=res["output_embedding"].to(device),
-                iteration=res["iteration"],
-                eq_class_patch_ids=config[img_name]["explore"],
-                img_out_dir=os.path.join(os.path.dirname(pkl_path), "interpretation"),
-                capping=args.results_dir if not args.cap_ex else "",
-                device=device,
-                means=means,
-                sds=sds,
-            )
-        except Exception as e:
-            log.error(
-                "Unhandled exception during intepretation:\nContext:\n"
-                "experiment: %s\nmodel: %s\nimage: %s\nparams: %d\nError: %s",
-                args.experiment_path,
-                params["model_path"],
-                img_name,
-                params,
-                e,
-                exc_info=True,
-            )
-            raise InterpretationException from e
+    for folder in os.listdir(args.results_dir):
+        experiment_dir = os.path.join(args.results_dir, folder)
+        # load dei metadati e dei tensori in npz
+        experiment_data = load_metadata_tensors(experiment_dir)
+        for iteration in tqdm(range(len(experiment_data["iteration"])), desc=experiment_dir):
+            img_name = folder.split("-")[-2] + img_extension
+            try:
+                interpret(
+                    original_image=images[names.index(img_name)],
+                    model=model.to(device),
+                    decoder=decoder,
+                    input_embedding=experiment_data["input_embedding"][iteration].to(device),
+                    iteration=experiment_data["iteration"][iteration],
+                    eq_class_patch_ids=config[img_name]["explore"],
+                    img_out_dir=os.path.join(experiment_dir, "interpretation"),
+                    capping=args.results_dir if not args.cap_ex else "",
+                    device=device,
+                    means=means,
+                    sds=sds,
+                )
+            except Exception as e:
+                log.error(
+                    "Unhandled exception during intepretation:\nContext:\n"
+                    "experiment: %s\nmodel: %s\nimage: %s\nparams: %d\nError: %s",
+                    args.experiment_path,
+                    params["model_path"],
+                    img_name,
+                    params,
+                    e,
+                    exc_info=True,
+                )
+                raise InterpretationException from e
 
 
 if __name__ == "__main__":
