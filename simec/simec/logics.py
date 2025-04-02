@@ -95,15 +95,14 @@ def pullback(
     while jac.dim() < 4:
         jac = torch.unsqueeze(jac, 0)
 
-    if eq_class_emb_ids:
-        # Select idsand pad if necessary
-        max_len = max(map(len, eq_class_emb_ids))
-        jac = torch.stack(
-            [
-                torch.nn.functional.pad(jac[i,:,L,:], (0,0,0,max_len-len(L)))
-            for i,L in enumerate(eq_class_emb_ids)]
-        )
-        # jac.shape = (batch_size, output_size, len(eq_class_emb_ids), embedding_size)
+    # Select idsand pad if necessary
+    max_len = max(map(len, eq_class_emb_ids))
+    jac = torch.stack(
+        [
+            torch.nn.functional.pad(jac[i,:,L,:], (0,0,0,max_len-len(L)))
+        for i,L in enumerate(eq_class_emb_ids)]
+    )
+    # jac.shape = (batch_size, output_size, len(eq_class_emb_ids), embedding_size)
 
     with torch.no_grad():
         jac = torch.transpose(jac, 1, 2)
@@ -268,13 +267,12 @@ def explore(
     # g.shape = (batch_size, N_patches+1, embedding_size, embedding_size)
 
     # Select eq_class_emb_ids in g and pad to the maximum length if necessary
-    if eq_class_emb_ids:
-        max_len = max(map(len, eq_class_emb_ids))
-        g = torch.stack(
-            [
-                torch.nn.functional.pad(g[i,L,:,:], (0,0,0,0,0,max_len-len(L))) 
-            for i,L in enumerate(eq_class_emb_ids)]
-        )
+    max_len = max(map(len, eq_class_emb_ids))
+    g = torch.stack(
+        [
+            torch.nn.functional.pad(g[i,L,:,:], (0,0,0,0,0,max_len-len(L))) 
+        for i,L in enumerate(eq_class_emb_ids)]
+    )
 
     # Keep track of the length of the polygonal
     if distance is None:
@@ -296,7 +294,7 @@ def explore(
             input_simec=input_emb,
             model = model,
             g=g,
-            eq_class_emb_ids=None if not eq_class_emb_ids else eq_class_emb_ids,
+            eq_class_emb_ids= eq_class_emb_ids,
         )
 
         # Detach values to reduce CUDA memory consumption
@@ -337,10 +335,7 @@ def explore(
             delta = delta_multiplier * torch.ones_like(root_max_lambda) / (root_max_lambda + eps)
             # delta.shape = (batch_size, 1)
 
-            if eq_class_emb_ids:
-                input_emb[:, eq_class_emb_ids, :] = input_emb[:, eq_class_emb_ids, :] + delta.unsqueeze(-1)*selected_eigenvecs
-            else:
-                input_emb = input_emb + delta.unsqueeze(-1)*selected_eigenvecs
+            input_emb[:, eq_class_emb_ids, :] = input_emb[:, eq_class_emb_ids, :] + delta.unsqueeze(-1)*selected_eigenvecs
 
             distance += selected_eigenvals * delta
             # cap embedding, if specified
