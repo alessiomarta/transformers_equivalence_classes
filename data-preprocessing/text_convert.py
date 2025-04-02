@@ -171,22 +171,15 @@ if __name__ == "__main__":
                 sorted_idx = sorted_idx[sorted_idx != 0]
 
                 for n, a in zip(N_words, perc):
-                    if n == tot_words:
-                        configs[a][fname] = {
-                            "objective": 0,
-                            "explore": [],
-                            "attrib": [],
-                            "tokens": sentence_tokens,
-                        }
-                    else:
-                        configs[a][fname] = {
-                            "objective": 0,
-                            "explore": sorted_idx[:n].tolist(),
-                            "attrib": sorted_scores[:n].tolist(),
-                            "tokens": [
-                                sentence_tokens[j] for j in sorted_idx[:n].tolist()
-                            ],
-                        }
+                    
+                    configs[a][fname] = {
+                        "objective": 0,
+                        "explore": sorted_idx[:n].tolist(),
+                        "attrib": sorted_scores[:n].tolist(),
+                        "tokens": [
+                            sentence_tokens[j] for j in sorted_idx[:n].tolist()
+                        ],
+                    }
 
                 del expl
                 gc.collect()

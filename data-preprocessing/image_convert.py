@@ -128,22 +128,14 @@ if __name__ == "__main__":
             sorted_scores = np.sort(patches_attribution, axis=None)[::-1]
 
             for n, a in zip(N_patches, perc):
-                if n == tot_patches:
-                    configs[a][fname] = {
-                        "objective": 0,
-                        "explore": [],
-                        "attrib": [],
-                        "img_dim": list(image.shape),
-                        "patch_dim": model.patcher.patch_size,
-                    }
-                else:
-                    configs[a][fname] = {
-                        "objective": 0,
-                        "explore": sorted_idx[:n].tolist(),
-                        "attrib": sorted_scores[:n].tolist(),
-                        "img_dim": list(image.shape),
-                        "patch_dim": model.patcher.patch_size,
-                    }
+                
+                configs[a][fname] = {
+                    "objective": 0,
+                    "explore": sorted_idx[:n].tolist(),
+                    "attrib": sorted_scores[:n].tolist(),
+                    "img_dim": list(image.shape),
+                    "patch_dim": model.patcher.patch_size,
+                }
 
             del patches_attribution
             del transformer_attribution

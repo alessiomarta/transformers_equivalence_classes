@@ -160,8 +160,6 @@ def main():
             
             # Parameters
             eq_class_emb_ids = [config[name]["explore"] for name in file_names]
-            if len(sum(eq_class_emb_ids, [])) == 0:
-                eq_class_emb_ids = None
             pred_id = [config[name]["objective"] for name in file_names]
                         
             for r in range(params["repeat"]):
