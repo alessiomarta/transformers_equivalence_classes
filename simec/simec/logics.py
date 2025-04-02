@@ -7,14 +7,14 @@ This module leverages PyTorch for tensor operations and gradient computations.
 """
 
 import os
+import json
 import pathlib
 import time
-from typing import List
+from typing import List, Iterable
 from collections import defaultdict
-import pickle
-from numpy import around
+from numpy import around, savez_compressed, load, concatenate
 import torch
-from torch.func import vmap, jacrev
+from torch.func import jacrev
 import gc
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = "expandable_segments:True"
 
@@ -36,8 +36,27 @@ class OutputOnlyModel(torch.nn.Module):
 
 
 def save_object(obj, filename):
-    with open(filename, "wb") as outp:  # Overwrites any existing file.
-        pickle.dump(obj, outp, pickle.HIGHEST_PROTOCOL)
+    # controllare se esiste un file di salvataggio chiamato filename
+        # se non esiste, creare un nuovo dizionario e una nuova matrice di tensori
+        # e salvare entrambi in due file separati (.npy per input_embedding e dizionario .json per i metadati)
+    # altrimenti aprire i file esistenti e appendere le nuove cose
+
+    metadata = {k:[v] for k,v in obj.items() if not isinstance(v, Iterable) or isinstance(v, str)}
+    data = {k:(v.cpu().numpy() if isinstance(v, torch.Tensor) else v) for k,v in obj.items() if k not in metadata}
+
+    if os.path.exists(filename+"/embeddings.npz") and os.path.exists(filename + "/metadata.json"):
+        with open(filename + "/metadata.json", "r") as f:  # Overwrites any existing file.
+            old_metadata = json.load(f)
+
+        metadata = {k:L + metadata[k] for k,L in old_metadata.items()}
+
+        old_data = load(filename + "/embeddings.npz")
+        data = {k:concatenate([old_data[k], v], axis = 0) for k,v in data.items()}
+        
+    with open(filename + "/metadata.json", "w") as f:  # Overwrites any existing file.
+        json.dump(metadata, f)
+
+    savez_compressed(filename + "/embeddings.npz", **data)
 
 
 def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None):
@@ -212,7 +231,7 @@ def explore(
     capping: bool = False,
     distance=None,
     start_iteration=0,
-    dtype = torch.float16
+    dtype = torch.float32
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -346,8 +365,8 @@ def explore(
                     max_embeddings.unsqueeze(0).repeat(input_emb.size(0), 1, 1)
                 )
 
-        # Save
-        if i % save_each == 0:
+        # Save at every N iterations and at the last one
+        if i % save_each == 0 or i == n_iterations - 1:
             tic_save = time.time()
             print(f"Iteration: {i}\tDelta: {around(delta.numpy().flatten(), 5)}")
             
@@ -355,13 +374,13 @@ def explore(
                 os.makedirs(out_dir[obj], exist_ok=True)
                 save_object(
                     {
-                        "input_embedding": input_emb[obj],  # array
-                        "distance": distance[obj].cpu(),    # float
+                        "input_embedding": input_emb[obj].unsqueeze(0),  # array
+                        "distance": distance[obj].unsqueeze(0),          # array
                         "iteration": i,                     # int
                         "time": tic_save - tic,             # float
-                        "delta": delta,                     # float
+                        "delta": delta[obj].cpu().item(),        # float
                     },
-                    os.path.join(out_dir[obj], f"{i}.pkl"),
+                    out_dir[obj]
                 )
             diff = time.time() - tic_save
             
@@ -375,18 +394,3 @@ def explore(
         times["time"] += time.time() - tic
         if i % save_each == 0:
             times["time"] -= diff
-
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-    # save last iteration
-    if not os.path.exists(os.path.join(out_dir, f"{n_iterations-1}.pkl")):
-        save_object(
-            {
-                "input_embedding": input_emb.cpu(),
-                "distance": distance.cpu(),
-                "iteration": i,
-                "time": times["time"],
-                "delta": delta.cpu(),
-            },
-            os.path.join(out_dir, f"{n_iterations}.pkl"),
-        )
