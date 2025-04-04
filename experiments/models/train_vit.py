@@ -12,9 +12,12 @@ import argparse
 import torch
 from torchvision import datasets, transforms
 from tqdm.auto import trange
-from experiments.models.vit import ViTForClassification
-from experiments.models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
-
+import sys
+sys.path.append(".")
+from time import sleep
+from vit import ViTForClassification
+from const import *
+sleep(2)
 
 def load_config(config_path):
     """
@@ -215,20 +218,23 @@ def prepare_data(
     Returns:
         tuple: Data loaders for training and testing.
     """
-    if "cifar" in dataset.lower():
-        transform = transforms.Compose(
-            [
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=CIFAR_MEAN,
-                    std=CIFAR_STD,
-                ),
-            ]
-        )
+    if normalize:
+        if "cifar" in dataset.lower():
+            transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=CIFAR_MEAN,
+                        std=CIFAR_STD,
+                    ),
+                ]
+            )
+        else:
+            transform = transforms.Compose(
+                [transforms.ToTensor(), transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
+            )
     else:
-        transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
-        )
+        transform = transforms.ToTensor()
 
     data_dir = f"{base_dir}/{dataset.lower()}_data"
     train_dataset = getattr(datasets, dataset.upper())(
@@ -275,7 +281,7 @@ def parse_args():
         "--epochs", type=int, default=10, help="Number of training epochs."
     )
     parser.add_argument(
-        "--lr", type=float, default=3e-4, help="Learning rate for optimizer."
+        "--lr", type=float, default=1e-3, help="Learning rate for optimizer."
     )
     parser.add_argument(
         "--save_every", type=int, default=1, help="Save a checkpoint every N epochs."
@@ -337,7 +343,7 @@ def main():
 
     # Initialize the model, optimizer, and loss function
     model = ViTForClassification(config)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     loss_fn = torch.nn.CrossEntropyLoss()
 
     # Train the model

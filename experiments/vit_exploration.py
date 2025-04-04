@@ -12,7 +12,6 @@ import time
 import torch
 import sys
 sys.path.append("./")
-sys.path.append("./experiments_data/")
 
 from experiments_utils import (
     load_and_transform_raw_images,
@@ -65,7 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default = 64,
+        default = 16,
         help="Batch size.",
     )
     parser.add_argument("--cap-ex", default=True)

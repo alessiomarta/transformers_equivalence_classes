@@ -114,36 +114,37 @@ def pullback(
     while jac.dim() < 4:
         jac = torch.unsqueeze(jac, 0)
 
-    # Select idsand pad if necessary
+    # Select ids and pad if necessary
     max_len = max(map(len, eq_class_emb_ids))
+    batch_size = jac.shape[0]
     jac = torch.stack(
         [
             torch.nn.functional.pad(jac[i,:,L,:], (0,0,0,max_len-len(L)))
         for i,L in enumerate(eq_class_emb_ids)]
     )
-    # jac.shape = (batch_size, output_size, len(eq_class_emb_ids), embedding_size)
+    # jac.shape = (batch_size, output_size, max_len, embedding_size)
 
     with torch.no_grad():
         jac = torch.transpose(jac, 1, 2)
         jac = torch.flatten(jac, end_dim = 1)
-        # jac.shape = (batch_size*len(eq_class_emb_ids), output_size, embedding_size)
+        # jac.shape = (batch_size*max_len, output_size, embedding_size)
         jac_t = torch.transpose(jac, -2, -1)
-        # jac_t.shape = (batch_size*len(eq_class_emb_ids), embedding_size, output_size)
+        # jac_t.shape = (batch_size*max_len, embedding_size, output_size)
 
-        # g.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+        # g.shape = (batch_size, max_len, embedding_size, embedding_size)
         tmp = torch.bmm(jac_t, torch.flatten(g, end_dim=1))
-        # tmp.shape = (batch_size*len(eq_class_emb_ids), embedding_size, output_size)
-        pullback_metric = torch.bmm(tmp, jac).float()
-        # pullback_metric.shape = (batch_size*len(eq_class_emb_ids), embedding_size, embedding_size)
+        # tmp.shape = (batch_size*max_len, embedding_size, output_size)
+        pullback_metric = torch.bmm(tmp, jac)
+        # pullback_metric.shape = (batch_size*max_len, embedding_size, embedding_size)
 
         pullback_metric = torch.stack(
-            torch.chunk(pullback_metric, input_simec.shape[0])
+            torch.chunk(pullback_metric, batch_size)
         )
-        # pullback_metric.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+        # pullback_metric.shape = (batch_size, max_len, embedding_size, embedding_size)
         
         eigenvalues, eigenvectors = torch.linalg.eigh(pullback_metric, UPLO="U")
-        # eigenvalues.shape = (batch_size, len(eq_class_emb_ids), embedding_size)
-        # eigenvectors.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+        # eigenvalues.shape = (batch_size, max_len, embedding_size)
+        # eigenvectors.shape = (batch_size, max_len, embedding_size, embedding_size)
 
     return eigenvalues, eigenvectors
 
@@ -228,10 +229,10 @@ def explore(
     max_embeddings: torch.Tensor = None,
     save_each: int = 10,
     out_dir: str = ".",
-    capping: bool = False,
+    capping: bool = True,
     distance=None,
     start_iteration=0,
-    dtype = torch.float32
+    dtype = torch.float64
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -297,7 +298,7 @@ def explore(
     if distance is None:
         distance = torch.zeros(
             g.size(0),
-        g.size(1)
+            g.size(1)
         ).to(dtype = dtype)
     else:
         distance = distance.to(device)
@@ -319,44 +320,54 @@ def explore(
         # Detach values to reduce CUDA memory consumption
         input_emb = input_emb.detach().cpu()
         eigenvalues = eigenvalues.detach().cpu()
-        # eigenvalues.shape = (batch_size, len(eq_class_emb_ids), embedding_size)
+        # eigenvalues.shape = (batch_size, max_len, embedding_size)
         eigenvectors = eigenvectors.detach().cpu()
-        # eigenvectors.shape = (batch_size, len(eq_class_emb_ids), embedding_size, embedding_size)
+        # eigenvectors.shape = (batch_size, max_len, embedding_size, embedding_size)
+
+        # Check
+        for i,L in enumerate(eq_class_emb_ids):
+            eigenvalues[i,len(L):] = 0.0
+            eigenvectors[i,len(L):] = 0.0
 
         # Select a random eigenvectors corresponding to a null eigenvalue.
         # We consider an eigenvalue null if it is below a threshold value.
+        threshold = min(torch.median(torch.abs(eigenvalues)), threshold)
         if same_equivalence_class:  # simec
-            number_eigenvalues = torch.count_nonzero(eigenvalues < threshold, dim=-1)
+            number_eigenvalues = torch.sum(torch.abs(eigenvalues) < threshold, dim=-1).float()
+            # Positions of the eigenvalues to choose (note they are in ascending order)
+            ids_eigenvals = torch.round(torch.rand_like(number_eigenvalues) * number_eigenvalues).to(dtype = torch.int64).unsqueeze(-1) # equal to randint for each element
         else:  # simexp
-            number_eigenvalues = torch.count_nonzero(eigenvalues > threshold, dim=-1)
+            number_eigenvalues = torch.sum(torch.abs(eigenvalues) > threshold, dim=-1).float()
+            ids_eigenvals = eigenvalues.shape[2] - torch.round(torch.rand_like(number_eigenvalues) * number_eigenvalues).to(dtype = torch.int64).unsqueeze(-1) # equal to randint for each element
         # number_eigenvalues = (batch_size, len(eq_class_emb_ids))
 
-        ids_eigenvals = torch.round(torch.rand_like(number_eigenvalues.float()) * number_eigenvalues.float()).to(dtype = torch.int64).unsqueeze(-1) - 1 # equal to randint for each element
-
         # Choice of eigenvalues and eigenvectors
+        ids_eigenvals = torch.clamp(ids_eigenvals, 0, eigenvalues.shape[2]-1)
         selected_eigenvals = torch.where(
             ids_eigenvals >= 0, 
-            torch.gather(eigenvalues, -1, torch.clamp(ids_eigenvals, 0, ids_eigenvals.max())), 
+            torch.gather(eigenvalues, -1, ids_eigenvals), 
             0.0
         ).squeeze(-1)
         # selected_eigenvals.shape = (batch_size, len(eq_class_emb_ids))
+
         ids_eigenvecs = ids_eigenvals.unsqueeze(-1).repeat(1,1,eigenvectors.size(-2),1)
         selected_eigenvecs = torch.where(
             ids_eigenvecs >= 0,
-            torch.gather(eigenvectors, -1, torch.clamp(ids_eigenvecs, 0, ids_eigenvecs.max())),
+            torch.gather(eigenvectors, -1, ids_eigenvecs),
             0.0
         ).squeeze(-1)
         # selected_eigenvecs.shape = (batch_size, len(eq_class_emb_ids), embedding_size)
 
         with torch.no_grad():
             # Proceeed along a null direction
-            root_max_lambda = torch.sqrt(eigenvalues.max(dim = -1)[0].max(dim = -1, keepdim = True)[0])
+            root_max_lambda = torch.sqrt(torch.abs(eigenvalues).max(dim = -1, keepdims = True)[0])
             delta = delta_multiplier * torch.ones_like(root_max_lambda) / (root_max_lambda + eps)
             # delta.shape = (batch_size, 1)
 
-            input_emb[:, eq_class_emb_ids, :] = input_emb[:, eq_class_emb_ids, :] + delta.unsqueeze(-1)*selected_eigenvecs
+            for i,L in enumerate(eq_class_emb_ids):
+                input_emb[i, L, :] = input_emb[i, L, :] + delta[i]*selected_eigenvecs[i]
 
-            distance += selected_eigenvals * delta
+            distance = selected_eigenvals * delta.squeeze(-1)
             # cap embedding, if specified
             if capping:
                 input_emb = torch.clamp(

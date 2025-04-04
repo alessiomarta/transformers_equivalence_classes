@@ -279,8 +279,8 @@ class MLP(nn.Module):
     def forward(self, x):
         x = self.dense_1(x)
         x = self.activation(x)
-        x = self.dense_2(x)
         x = self.dropout(x)
+        x = self.dense_2(x)
         return x
 
 

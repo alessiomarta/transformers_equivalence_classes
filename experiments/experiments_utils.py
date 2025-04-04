@@ -22,7 +22,7 @@ from numpy import load
 import sys
 sys.path.append(".")
 from models.vit import ViTForClassification
-from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
+from models.const import *
 
 def load_metadata_tensors(filename):
     with open(filename + "/metadata.json", "r") as f:  # Overwrites any existing file.
@@ -163,29 +163,33 @@ def load_and_transform_raw_image(img_path: str) -> torch.Tensor:
     Returns:
         A tensor containing the transformed image.
     """
-    if "cifar" in img_path.lower():
-        transform = transforms.Compose(
-            [
-                transforms.Normalize(
-                    mean=CIFAR_MEAN,
-                    std=CIFAR_STD,
-                ),
-            ]
-        )
+    if normalize:
+        if "cifar" in img_path.lower():
+            transform = transforms.Compose(
+                [
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=CIFAR_MEAN,
+                        std=CIFAR_STD,
+                    ),
+                ]
+            )
+        else:
+            transform = transforms.Compose(
+                [transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
+            )
     else:
-        transform = transforms.Compose(
-            [transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
-        )
+        transform = torch.nn.Identity()
 
     if os.path.isfile(img_path):
         if "mnist" in img_path:
             image = transform(
-                read_image(img_path, mode=ImageReadMode.GRAY).to(torch.float32)
-            )
+                read_image(img_path, mode=ImageReadMode.GRAY)
+            ).to(torch.float32)
         else:
             image = transform(
-                read_image(img_path, mode=ImageReadMode.RGB).to(torch.float32)
-            )
+                read_image(img_path, mode=ImageReadMode.RGB)
+            ).to(torch.float32)
         return image
     else:
         raise FileNotFoundError(f"No such file: '{img_path}'")
@@ -423,7 +427,7 @@ def compute_embedding_boundaries(
     positive_embeddings = torch.where(token_embedding >= 0, token_embedding, 0)
     negative_embeddings = torch.where(token_embedding < 0, token_embedding, 0)
 
-    max_input = (1 - min(means)) / min(sds)
+    max_input = (255 - min(means)) / min(sds)
     min_input = (0 - max(means)) / min(sds)
 
     # The embedding layer computes e_i = \sum_j E_{ij}*x_j + p^{(k)}_i, where E is the embedding matrix, x_j are the features of the input, and p_i are those of the positional encoding

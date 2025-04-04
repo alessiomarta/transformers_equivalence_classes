@@ -19,7 +19,7 @@ from experiments_utils import (
     save_object,
     compute_embedding_boundaries,
 )
-from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
+from models.const import *
 
 
 def mask_random_word(sentences, mask_token, classification_token):
@@ -300,8 +300,15 @@ def generate_experiment_combinations(
         )
         deactivate_dropout_layers(mdl)
         tkn = None
-        if "cifar" == exp["exp_name"]:
-            means = CIFAR_MEAN
+        # Give default values to means ans sds if normalize is set to False
+        if not normalize:
+            CIFAR_MEAN = [0.0, 0.0, 0.0]
+            MNIST_MEAN = 0.0
+            CIFAR_STD = [1.0, 1.0, 1.0]
+            MNIST_STD = 1.0
+
+        if "cifar" in exp["exp_name"]:
+            means = CIFAR_MEAN 
             sds = CIFAR_STD
         else:
             means = [
@@ -309,7 +316,7 @@ def generate_experiment_combinations(
             ]
             sds = [
                 MNIST_STD,
-            ]
+            ]            
     else:
         tkn, mdl = load_bert_model(
             exp["model_path"],
@@ -506,7 +513,7 @@ def interactive_argument_parser():
     else:
         args["delta_mult"] = [int(delta_mult_input)]  # Single value, but in a list
 
-    args["threshold"] = float(get_user_input("Threshold value", default=0.01))
+    args["threshold"] = float(get_user_input("Threshold value", default= 1e-6))
     args["save_each"] = int(
         get_user_input("Save results every n iterations", default=1)
     )

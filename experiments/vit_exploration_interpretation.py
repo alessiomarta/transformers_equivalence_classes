@@ -30,10 +30,9 @@ from experiments_utils import (
     load_object,
     save_object,
     load_json,
-    collect_pkl_res_files,
     load_metadata_tensors,
 )
-from models.const import CIFAR_MEAN, CIFAR_STD, MNIST_MEAN, MNIST_STD
+from models.const import *
 
 matplotlib.use("Agg")
 
@@ -87,7 +86,7 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
-    input_embedding = input_embedding.to(device)
+    input_embedding = input_embedding.to(device, original_image.dtype)
 
     with torch.no_grad():
         width, height = original_image.shape[1:]
@@ -112,32 +111,7 @@ def interpret(
         ).item()  # prediction from modified embedding at a certain iteration
 
         input_embedding = input_embedding.detach()
-        if capping:
-            min_cap = load_object(os.path.join(capping, "min_distribution.pkl")).to(
-                device
-            )
-            max_cap = load_object(os.path.join(capping, "max_distribution.pkl")).to(
-                device
-            )
-            # cap input embeddings to bring them back to what the decoder knows
-            input_embedding[input_embedding < min_cap] = min_cap[
-                input_embedding < min_cap
-            ]
-            input_embedding[input_embedding > max_cap] = max_cap[
-                input_embedding > max_cap
-            ]
-
-            pred_capped_proba = model.classifier(
-                model.encoder(input_embedding)[0][:, 0]
-            )  # prediction from modified embedding at a certain iteration, when exploring phase does not perform capping at each iteration
-            json_stats["capped_embedding_pred_proba"] = pred_capped_proba.cpu()
-            json_stats["capped_embedding_pred"] = torch.argmax(pred_capped_proba).item()
-        else:
-            json_stats["capped_embedding_pred_proba"] = (
-                None  # this means that the capping has been performed at exploration time
-            )
-            json_stats["capped_embedding_pred"] = "exploration-capping"
-
+        
         # select those patches to replace with modified ones
         patch_idx = []
         if eq_class_patch_ids:
@@ -164,7 +138,7 @@ def interpret(
                         mod_pixels[1].append(p[1] + j)
 
             # embeddings->image
-            decoded_image = decoder(input_embedding.to(device))
+            decoded_image = decoder(input_embedding)
 
             # replace patches in original image with those in modified image
             modified_image = original_image.clone().to(device)
@@ -175,7 +149,7 @@ def interpret(
                 :, mod_pixels[1], mod_pixels[0]
             ].cpu()
         else:
-            modified_image = decoder(input_embedding.to(device)).squeeze().to(device)
+            modified_image = decoder(input_embedding).squeeze()
             if len(modified_image.size()) == 2:
                 modified_image = modified_image.unsqueeze(0)
             json_stats["modified_patches"] = modified_image.cpu()
@@ -183,11 +157,13 @@ def interpret(
             0
         ].squeeze()  # prediction from translating embeddings back to image, and processing that image
 
-        modified_image = denormalize(
-            modified_image.to(device),
-            std=torch.tensor(sds).to(device),
-            mean=torch.tensor(means).to(device),
-        )
+        if normalize:
+            modified_image = denormalize(
+                modified_image.to(device),
+                std=torch.tensor(sds).to(device),
+                mean=torch.tensor(means).to(device),
+            )
+
         json_stats["modified_image_pred"] = torch.argmax(
             modified_image_pred_proba
         ).item()
@@ -279,8 +255,13 @@ def main():
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
     images, names = load_and_transform_raw_images(args.experiment_path)
-    means = CIFAR_MEAN if "cifar" in params["orig_data_dir"] else MNIST_MEAN
-    sds = CIFAR_STD if "cifar" in params["orig_data_dir"] else MNIST_STD
+    if normalize:
+        means = CIFAR_MEAN if "cifar" in params["orig_data_dir"] else MNIST_MEAN
+        sds = CIFAR_STD if "cifar" in params["orig_data_dir"] else MNIST_STD
+    else:
+        means = [0.0]
+        sds = [1.0] 
+        
     images = images.to(device)
     model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
     model, _ = load_model(
