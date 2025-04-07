@@ -218,7 +218,7 @@ def pullback_eigenvalues(
 def explore(
     same_equivalence_class: bool,
     input_embedding: torch.Tensor,
-    model: torch.nn.Module,
+    input_model: torch.nn.Module,
     threshold: float,
     delta_multiplier: int,
     n_iterations: int,
@@ -263,9 +263,9 @@ def explore(
             "Capping is set but no minimum distribution embeddings or maximum distribution embeddings were passed."
         )
     
-    eps = 1e-9
+    eps = 1e-6
 
-    model = OutputOnlyModel(model.to(device, dtype = dtype))
+    model = OutputOnlyModel(input_model.to(device, dtype = dtype))
     # Clone and require gradient of the embedded input and prepare for the first iteration
     input_emb = input_embedding.to(device, dtype=dtype).requires_grad_(True)
     # input_emb.shape = (batch_size, N_patches+1, embedding_size)
@@ -325,13 +325,12 @@ def explore(
         # eigenvectors.shape = (batch_size, max_len, embedding_size, embedding_size)
 
         # Check
-        for i,L in enumerate(eq_class_emb_ids):
-            eigenvalues[i,len(L):] = 0.0
-            eigenvectors[i,len(L):] = 0.0
+        for j,L in enumerate(eq_class_emb_ids):
+            eigenvalues[j,len(L):] = 0.0
+            eigenvectors[j,len(L):] = 0.0
 
         # Select a random eigenvectors corresponding to a null eigenvalue.
         # We consider an eigenvalue null if it is below a threshold value.
-        threshold = min(torch.median(torch.abs(eigenvalues)), threshold)
         if same_equivalence_class:  # simec
             number_eigenvalues = torch.sum(torch.abs(eigenvalues) < threshold, dim=-1).float()
             # Positions of the eigenvalues to choose (note they are in ascending order)
@@ -360,12 +359,12 @@ def explore(
 
         with torch.no_grad():
             # Proceeed along a null direction
-            root_max_lambda = torch.sqrt(torch.abs(eigenvalues).max(dim = -1, keepdims = True)[0])
-            delta = delta_multiplier * torch.ones_like(root_max_lambda) / (root_max_lambda + eps)
+            root_max_lambda = torch.sqrt(torch.abs(eigenvalues).max(dim = -1, keepdims = True)[0] / (torch.abs(eigenvalues).min(dim = -1, keepdims = True)[0] + eps))
+            delta = delta_multiplier * torch.ones_like(root_max_lambda) / root_max_lambda
             # delta.shape = (batch_size, 1)
 
-            for i,L in enumerate(eq_class_emb_ids):
-                input_emb[i, L, :] = input_emb[i, L, :] + delta[i]*selected_eigenvecs[i]
+            for j,L in enumerate(eq_class_emb_ids):
+                input_emb[j, L, :] = input_emb[j, L, :] + delta[j]*selected_eigenvecs[j]
 
             distance = selected_eigenvals * delta.squeeze(-1)
             # cap embedding, if specified
@@ -389,7 +388,7 @@ def explore(
                         "distance": distance[obj].unsqueeze(0),          # array
                         "iteration": i,                     # int
                         "time": tic_save - tic,             # float
-                        "delta": delta[obj].cpu().item(),        # float
+                        "delta": delta.cpu().numpy().flatten()[obj],        # float
                     },
                     out_dir[obj]
                 )

@@ -174,28 +174,28 @@ def interpret(
 
         fname = os.path.join(
             img_out_dir,
-            f"{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
+            f"{iteration}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
         )
         patches_fname = os.path.join(
             img_out_dir,
-            f"patches-{iteration}-{json_stats['embedding_pred']}-{json_stats['capped_embedding_pred']}-{json_stats['modified_image_pred']}.png",
+            f"patches-{iteration}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
         )
         if not os.path.exists(img_out_dir):
             os.makedirs(img_out_dir)
         save_image(
-            modified_image,
+            modified_image/255,
             fname,
             format="png",
         )
         _, ax = plt.subplots()
         if modified_image.size(0) == 1:
             ax.imshow(
-                modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy(),
+                modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy()/255,
                 cmap="gray",
                 # norm=Normalize(vmin=0, vmax=1),
             )
         else:
-            ax.imshow(modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy())
+            ax.imshow(modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy()/255)
         for p in patch_idx:
             ax.add_patch(
                 Rectangle(

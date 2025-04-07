@@ -213,7 +213,7 @@ def main():
                     explore(
                         same_equivalence_class=(algorithm == "simec"),
                         input_embedding=start_embeddings,
-                        model=model,
+                        input_model=model,
                         threshold=params["threshold"],
                         delta_multiplier=params["delta_mult"],
                         n_iterations=n_iterations,

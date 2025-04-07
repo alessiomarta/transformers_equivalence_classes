@@ -360,7 +360,7 @@ def generate_experiment_combinations(
             exp["patches"] = patch_opt
 
             # Construct a descriptive name for the experiment
-            exp_name_full = f"{exp['exp_name']}-{delta}-{input_values}-{patch_opt}"
+            exp_name_full = f"{exp['exp_name']}-{str(delta).replace('.','p')}-{input_values}-{patch_opt}"
             if test:
                 exp_name_full = "test/" + exp_name_full
 
@@ -509,9 +509,9 @@ def interactive_argument_parser():
     # Fixing the issue for 'multiple=True' for delta_mult
     delta_mult_input = get_user_input("Delta multiplier", default=1, multiple=True)
     if isinstance(delta_mult_input, list):
-        args["delta_mult"] = [int(x) for x in delta_mult_input]
+        args["delta_mult"] = [float(x) for x in delta_mult_input]
     else:
-        args["delta_mult"] = [int(delta_mult_input)]  # Single value, but in a list
+        args["delta_mult"] = [float(delta_mult_input)]  # Single value, but in a list
 
     args["threshold"] = float(get_user_input("Threshold value", default= 1e-6))
     args["save_each"] = int(
