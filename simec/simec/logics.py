@@ -10,6 +10,7 @@ import os
 import json
 import pathlib
 import time
+from tqdm import tqdm
 from typing import List, Iterable
 from collections import defaultdict
 from numpy import around, savez_compressed, load, concatenate
@@ -306,7 +307,7 @@ def explore(
     times = defaultdict(float)
     times["n_iterations"] = n_iterations
     pred_id = torch.tensor(pred_id).to(device)
-
+    pbar = tqdm(total=n_iterations-start_iteration, desc=f"Exploring...")
     for i in range(start_iteration, n_iterations):
         tic = time.time()
         # Compute the pullback metric and its eigenvalues and eigenvectors
@@ -404,3 +405,4 @@ def explore(
         times["time"] += time.time() - tic
         if i % save_each == 0:
             times["time"] -= diff
+        pbar.update(1)

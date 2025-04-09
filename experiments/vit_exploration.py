@@ -11,6 +11,7 @@ import logging as log
 import time
 import torch
 import sys
+from tqdm import tqdm
 sys.path.append("./")
 
 from experiments_utils import (
@@ -149,9 +150,9 @@ def main():
 
     min_embs = load_object(os.path.join(args.experiment_path, "min_distribution.pkl"))
     max_embs = load_object(os.path.join(args.experiment_path, "max_distribution.pkl"))
-
+    
     for algorithm in algorithms:
-        print(f"\t{algorithm.upper()} exploration phase")
+        pbar = tqdm(total=len(params["repeat"]) * len(image_loader), desc=f"{args.experiment_path}, {algorithm.upper()}")
         for idx, input_embedding in enumerate(image_loader):
             # input_embedding[0].shape = (batch_size, N_patches+1, embedding_size)
             image_indices = (batch_size*idx, batch_size*(idx+1))
@@ -162,9 +163,6 @@ def main():
             pred_id = [config[name]["objective"] for name in file_names]
                         
             for r in range(params["repeat"]):
-                print(
-                    f"Image: {file_names}\tRepetition: {r+1}/{params['repeat']}"
-                )
                 try:
                     # load last iteration if continuing another experiment
                     if args.continue_from is not None:
@@ -228,6 +226,7 @@ def main():
                         start_iteration=start_iteration,
                         distance=distance,
                     )
+                    pbar.update(1)
                 except Exception as e:
                     log.error(
                         "Unhandled exception during exploration:\nContext:\n"
