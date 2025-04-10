@@ -379,7 +379,6 @@ def explore(
         # Save at every N iterations and at the last one
         if i % save_each == 0 or i == n_iterations - 1:
             tic_save = time.time()
-            print(f"Iteration: {i}\tDelta: {around(delta.numpy().flatten(), 5)}")
             
             for obj in range(input_emb.size(0)):
                 os.makedirs(out_dir[obj], exist_ok=True)

@@ -152,7 +152,7 @@ def main():
     max_embs = load_object(os.path.join(args.experiment_path, "max_distribution.pkl"))
     
     for algorithm in algorithms:
-        pbar = tqdm(total=len(params["repeat"]) * len(image_loader), desc=f"{args.experiment_path}, {algorithm.upper()}")
+        pbar = tqdm(total=params["repeat"] * len(image_loader), desc=f"{args.experiment_path}, {algorithm.upper()}")
         for idx, input_embedding in enumerate(image_loader):
             # input_embedding[0].shape = (batch_size, N_patches+1, embedding_size)
             image_indices = (batch_size*idx, batch_size*(idx+1))
