@@ -167,6 +167,8 @@ hate_explain/
 saved_models/
 experiments_data/
 
+experiments/experiments_data/
+
 # Result directory
 res/
 
