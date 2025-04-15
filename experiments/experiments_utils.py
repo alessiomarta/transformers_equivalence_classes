@@ -338,14 +338,16 @@ def load_bert_model(
     """
     if mask_or_cls in ["mask", "mlm"]:
         bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
-        bert_model = BertForMaskedLM.from_pretrained(model_name)
-        return bert_tokenizer, bert_model.to(device)
+        bert_model = BertForMaskedLM.from_pretrained(model_name).to(device)
+        return bert_tokenizer, bert_model
+    
     bert_tokenizer = BertTokenizerFast.from_pretrained(model_name)
     bert_model = BertForSequenceClassification.from_pretrained(model_name).to(device)
     decoder = BertForMaskedLM.from_pretrained("bert-base-uncased")
     deactivate_dropout_layers(decoder)
     decoder = decoder.to(device)
     bert_model.decoder = lambda x: decoder.cls(decoder.bert.encoder(x)[0])
+    
     return bert_tokenizer, bert_model
 
 
