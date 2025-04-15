@@ -30,6 +30,7 @@ jupyter = "^1.1.1"
 safetensors = "^0.5.3"
 h5py = "^3.13.0"
 umap-learn = "^0.5.7"
+dash = "^3.0.2"
 
 [build-system]
 requires = ["poetry-core"]
