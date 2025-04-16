@@ -138,8 +138,10 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset != "cifar":
+        if dataset not in ["cifar", "mnist"]:
             continue  # TODO remove when everything is ready
+        if p["delta_mult"] == 10.0:
+            continue
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
         for img, img_c in tqdm(
             c.items(),
@@ -210,13 +212,13 @@ if __name__ == "__main__":
                                         ]
                                         .detach()
                                         .cpu()
-                                        .squeeze()
+                                        .squeeze(0)
                                         .numpy(),
                                         interpretation_pickle["original_image_pred"],
                                         interpretation_pickle["embedding_pred_proba"]
                                         .detach()
                                         .cpu()
-                                        .squeeze()
+                                        .squeeze(0)
                                         .numpy(),
                                         interpretation_pickle["embedding_pred"],
                                         interpretation_pickle["modified_image_pred"],
@@ -225,14 +227,14 @@ if __name__ == "__main__":
                                         ]
                                         .detach()
                                         .cpu()
-                                        .squeeze()
+                                        .squeeze(0)
                                         .numpy(),
                                         interpretation_pickle[
                                             "modified_patches"
                                         ]
                                         .detach()
                                         .cpu()
-                                        .squeeze()
+                                        .squeeze(0)
                                         .numpy(),
                                     ]
                                 )
@@ -277,10 +279,6 @@ if __name__ == "__main__":
         modified_image_pred_proba=results["modified_image_pred_proba"].values,
         modified_image=results["modified_image"].values,
     )
-    """
-        input_embedding=results["input_embedding"].values,
-    )
-    """
     non_array_columns = [
         col
         for col in results.columns
