@@ -174,11 +174,11 @@ def interpret(
 
         fname = os.path.join(
             img_out_dir,
-            f"{iteration}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
+            f"{iteration}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
         )
         patches_fname = os.path.join(
             img_out_dir,
-            f"patches-{iteration}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
+            f"patches-{iteration}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
         )
         if not os.path.exists(img_out_dir):
             os.makedirs(img_out_dir)
