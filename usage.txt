@@ -24,3 +24,5 @@ python3 vit_exploration_interpretation.py --experiment-path experiments_data/cif
 cd sh-scripts
 bash image-experiments.sh
 
+4. Group experiments
+python group_results.py --experiment-path ../experiments/experiments_data/ --results-dir ../res
