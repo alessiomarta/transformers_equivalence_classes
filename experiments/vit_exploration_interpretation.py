@@ -86,9 +86,9 @@ def interpret(
     Returns:
         None. Saves the interpreted image with marked patches to the specified directory.
     """
-    input_embedding = input_embedding.to(device, original_image.dtype)
 
     with torch.no_grad():
+        input_embedding = input_embedding.to(device, original_image.dtype)
         width, height = original_image.shape[1:]
         model.eval()
         json_stats = {}
@@ -247,6 +247,7 @@ def parse_args() -> argparse.Namespace:
     else:
         arguments.device = torch.device(arguments.device).type
     return arguments
+#--experiment-path experiments_data/mnist-0p1-32-all --results-dir ../res/mnist-0p1-32-all-20250414-133507 --device cpu
 
 
 def main():
