@@ -186,5 +186,6 @@ gpu_tests.ipynb
 
 models/
 
-analysis/Transformer_Explainability/BERT_explainability/modules/__pycache__
+analysis/Transformer_Explainability/BERT_explainability/modules/__pycache__/
 .python-version
+
