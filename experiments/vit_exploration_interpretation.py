@@ -264,11 +264,17 @@ def main():
         sds = [1.0] 
         
     images = images.to(device)
-    model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
+    models_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
+    model_filename = models_filename[0]
+    for f in models_filename:
+        if "final.pt" in f:
+            model_filename = f
+            break
+    
     model, _ = load_model(
-        model_path=os.path.join(params["model_path"], model_filename[0]),
+        model_path=os.path.join(params["model_path"], model_filename),
         config_path=os.path.join(params["model_path"], "config.json"),
-        device=device,
+        device=torch.device("cpu"),
     )
     deactivate_dropout_layers(model)
     model = model.to(device)
