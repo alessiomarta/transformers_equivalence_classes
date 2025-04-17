@@ -13,8 +13,9 @@ import time
 from tqdm import tqdm
 from typing import List, Iterable
 from collections import defaultdict
-from numpy import around, savez_compressed, load, concatenate
+from numpy import savez_compressed, load, concatenate
 import torch
+from transformers import BertForMaskedLM
 from torch.func import jacrev
 import gc
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = "expandable_segments:True"
@@ -29,11 +30,36 @@ class OutputOnlyModel(torch.nn.Module):
 
         self.model = model
 
-    def forward(self, X: torch.Tensor):
+    def forward(self, X: torch.Tensor, pred_id: List[int] = None, select: torch.Tensor = None):
 
-        encoder_output, _ = self.model.encoder(X)
+        if hasattr(self.model, "bert"):
+            encoder_output = self.model.bert.encoder(X)['last_hidden_state']
 
-        return self.model.classifier(encoder_output[:, 0])
+            if hasattr(self.model, "classifier"):
+                y = self.model.classifier(
+                    self.model.bert.pooler(encoder_output)
+                )
+            
+            elif hasattr(self.model, "cls"):
+                y = self.model.cls(
+                    encoder_output[:,pred_id,:]
+                )
+            
+            else:
+                raise AttributeError("BERT model has neither classifier nor cls head")
+        else:
+            encoder_output, _ = self.model.encoder(X)
+            y = self.model.classifier(encoder_output[:, 0])
+        
+        if select is not None:
+            select = select.unsqueeze(0)
+            y = torch.gather(
+                y,
+                dim = -1,
+                index = select[:,pred_id,:]
+            )
+
+        return y
 
 
 def save_object(obj, filename):
@@ -60,7 +86,7 @@ def save_object(obj, filename):
     savez_compressed(filename + "/embeddings.npz", **data)
 
 
-def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None):
+def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None, select: torch.Tensor = None, pred_id: List[int] = None):
     """
     Computes the full Jacobian matrix of the neural network output with respect
     to its input.
@@ -77,10 +103,20 @@ def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None):
         partial derivatives of each output element with respect to each input element.
     """
 
+    if pred_id is None:
+        pred_id = [0]*nn_input.shape[0]
+
+    if select is None:
+        select = [None]*nn_input.shape[0]
+
     # nn_input.shape = (batch_size, N_patches+1, embedding_size)
     batch_jacobian = torch.stack([
-        jacrev(model)(x)
-    for x in nn_input.split(1)])
+        jacrev(model, argnums = 0)(
+            x, 
+            pred_id[i],
+            select[i],
+        )
+    for i,x in enumerate(nn_input.split(1))])
     # batch_jacobian.shape = (batch_size, output_size, (N_patches+1), embedding_size)
 
     return torch.squeeze(batch_jacobian, dim = list(range(1,batch_jacobian.dim())))
@@ -91,6 +127,8 @@ def pullback(
     g: torch.Tensor,
     model: torch.nn.Module = None,
     eq_class_emb_ids: List[List[int]] = None,
+    select: torch.Tensor = None,
+    pred_id: List[int] = None
 ):
     """
     Computes the pullback metric tensor using the given input and output embeddings and a metric tensor g.
@@ -110,7 +148,11 @@ def pullback(
         Tuple[torch.Tensor, torch.Tensor]: Eigenvalues and eigenvectors of the
         pullback metric tensor.
     """
-    jac = jacobian(input_simec, model)
+
+    if pred_id is None:
+        pred_id = [0]*input_simec.shape[0]
+
+    jac = jacobian(input_simec, model, select=select, pred_id = pred_id)
     # jac.shape = (batch_size, output_size, N_patches+1, embedding_size)
     while jac.dim() < 4:
         jac = torch.unsqueeze(jac, 0)
@@ -132,7 +174,7 @@ def pullback(
         jac_t = torch.transpose(jac, -2, -1)
         # jac_t.shape = (batch_size*max_len, embedding_size, output_size)
 
-        # g.shape = (batch_size, max_len, embedding_size, embedding_size)
+        # g.shape = (batch_size, max_len, output_size, output_size)
         tmp = torch.bmm(jac_t, torch.flatten(g, end_dim=1))
         # tmp.shape = (batch_size*max_len, embedding_size, output_size)
         pullback_metric = torch.bmm(tmp, jac)
@@ -148,72 +190,6 @@ def pullback(
         # eigenvectors.shape = (batch_size, max_len, embedding_size, embedding_size)
 
     return eigenvalues, eigenvectors
-
-
-def pullback_eigenvalues(
-    input_embedding: torch.Tensor,
-    model: torch.nn.Module,
-    pred_id: int,
-    device: torch.device,
-    out_dir: str = ".",
-):
-    """
-    Calculates the eigenvalues of the pullback metric tensor derived from a given
-    model's embeddings.
-
-    Args:
-        input_embedding (torch.Tensor): The input embedding tensor.
-        model (torch.nn.Module): Neural network model that produces output
-        embeddings from the input embeddings.
-        pred_id (int): Index of the prediction to be considered for the pullback
-        calculation.
-        device (torch.device): Device to perform the computation on.
-        out_dir (str, optional): Directory where timing and eigenvalues data
-        will be saved.
-
-    Returns:
-        torch.Tensor: Eigenvalues of the pullback metric.
-    """
-
-    tic = time.time()
-
-    model = OutputOnlyModel(model)
-
-    # Clone and require gradient of the embedded input and prepare for the first iteration
-    input_emb = input_embedding.clone().to(device).requires_grad_(True)
-    # input_emb.shape = (batch_size, sequence_len, embedding_size)
-    output_emb = model.model.encoder(input_emb).to(device)
-    # output_emb.shape = (batch_size, output_size)
-
-    # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    g = (
-        torch.eye(input_embedding.size(-1))
-        .unsqueeze(0)
-        .repeat(
-            output_emb.size(0),
-            1,
-            1,
-        )
-    ).to(device)
-    # g.shape = (batch_size, embedding_size, embedding_size)
-
-    # Compute the pullback metric and its eigenvalues and eigenvectors
-    eigenvalues, _ = pullback(
-        input_simec=input_emb,
-        g=g,
-    )
-
-    pathlib.Path(out_dir).mkdir(parents=True, exist_ok=True)
-
-    save_object(
-        {
-            "input_embedding": input_emb.cpu(),
-            "output_embedding": output_emb.cpu(),
-            "eigenvalues": eigenvalues.cpu(),
-            "time": time.time() - tic,
-        },
-        os.path.join(out_dir, "pullback_eigenvalues.pkl"),
-    )
 
 
 def explore(
@@ -233,6 +209,7 @@ def explore(
     capping: bool = True,
     distance=None,
     start_iteration=0,
+    retain_top_k: int = 10,
     dtype = torch.float64
 ):
     """
@@ -272,10 +249,16 @@ def explore(
     # input_emb.shape = (batch_size, N_patches+1, embedding_size)
     #output_emb = model.model.encoder(input_emb)[0]
     # output_emb.shape = (batch_size, N_classes)
+    if isinstance(input_model, BertForMaskedLM):
+        output_embedding = input_model.bert.encoder(input_emb)
+        indices = input_model.cls(output_embedding['last_hidden_state']).argsort(dim = -1)[:,:,-retain_top_k:]
+    else:
+        indices = None
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
+    output_size = retain_top_k if retain_top_k else input_model.num_classes
     g = (
-        torch.eye(model.model.num_classes)
+        torch.eye(output_size)
         .unsqueeze(0)
         .unsqueeze(0)
         .repeat(
@@ -285,7 +268,7 @@ def explore(
             1,
         )
     ).to(device, dtype = dtype)
-    # g.shape = (batch_size, N_patches+1, embedding_size, embedding_size)
+    # g.shape = (batch_size, N_patches+1, output_size, output_size)
 
     # Select eq_class_emb_ids in g and pad to the maximum length if necessary
     max_len = max(map(len, eq_class_emb_ids))
@@ -316,6 +299,8 @@ def explore(
             model = model,
             g=g,
             eq_class_emb_ids= eq_class_emb_ids,
+            select=indices,
+            pred_id=pred_id
         )
 
         # Detach values to reduce CUDA memory consumption
