@@ -85,6 +85,8 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
+    if args.experiment_path.endswith("/"):
+        args.experiment_path = args.experiment_path[:-1]
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     if args.continue_from is not None:
@@ -132,8 +134,8 @@ def main():
         txts,
         return_tensors="pt",
         return_attention_mask=False,
-        add_special_tokens=True,
-        padding = "max_length"
+        add_special_tokens=False,
+        padding = True
     ).to(device)
     token_embeddings = model.bert.embeddings(**input_tokens).cpu()
     token_embeddings = torch.utils.data.TensorDataset(token_embeddings)
@@ -225,7 +227,9 @@ def main():
                         min_embeddings=min_embs,
                         max_embeddings=max_embs,
                         start_iteration=start_iteration,
-                        distance=distance
+                        distance=distance,
+                        retain_top_k=5,
+                        dtype = torch.float64
                     )
                     pbar.update(1)
                 except Exception as e:

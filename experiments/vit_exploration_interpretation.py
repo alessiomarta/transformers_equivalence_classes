@@ -27,7 +27,6 @@ from experiments_utils import (
     load_and_transform_raw_images,
     deactivate_dropout_layers,
     load_model,
-    load_object,
     save_object,
     load_json,
     load_metadata_tensors,
@@ -252,9 +251,12 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
+    if args.experiment_path.endswith("/"):
+        args.experiment_path = args.experiment_path[:-1]
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     device = torch.device(args.device)
+
     images, names = load_and_transform_raw_images(args.experiment_path)
     if normalize:
         means = CIFAR_MEAN if "cifar" in params["orig_data_dir"] else MNIST_MEAN
