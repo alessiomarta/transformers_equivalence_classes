@@ -138,10 +138,11 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset not in ["cifar", "mnist"]:
+        if dataset not in ["cifar"]:#"mnist"]:
             continue  # TODO remove when everything is ready
         if p["delta_mult"] == 10.0:
             continue
+        
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
         for img, img_c in tqdm(
             c.items(),
@@ -161,7 +162,7 @@ if __name__ == "__main__":
                             and dataset in f
                             and p["patches"] in f
                             and algorithm in f
-                            and str(repetition) in f
+                            and f.split("-")[-1] == str(repetition)
                         ):
                             exp_file.append(f)
                     for f in exp_file:
