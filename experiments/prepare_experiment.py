@@ -290,8 +290,9 @@ def generate_experiment_combinations(
         input_values = exp["inputs"]
     # loading model
     if any(k in exp["exp_name"] for k in ["cifar", "mnist"]):
+        
         model_filename = next(
-            f for f in os.listdir(exp["model_path"]) if f.endswith(".pt")
+            f for f in os.listdir(exp["model_path"]) if f.endswith("final.pt")
         )
         mdl, _ = load_model(
             model_path=os.path.join(exp["model_path"], model_filename),
@@ -350,13 +351,8 @@ def generate_experiment_combinations(
     for delta in delta_mult_values:
         exp["delta_mult"] = delta
 
-        # Define patch exploration options (or use specific ones for targeted experiments)
-        patch_list = (
-            [exp["patches"]] if exp["patches"] == "target-word" else patch_options
-        )
-
         # Iterate over patch options
-        for patch_opt in patch_list:
+        for patch_opt in patch_options:
             exp["patches"] = patch_opt
 
             # Construct a descriptive name for the experiment
@@ -537,6 +533,13 @@ def interactive_argument_parser():
     args["cap_ex"] = (
         get_user_input(
             "Enable capped execution? (yes/no)", default="yes", choices=["yes", "no"]
+        )
+        == "yes"
+    )
+
+    args["degrowth"] = (
+        get_user_input(
+            "Check eigenvector is opposite to the gradient? (yes/no)", default="no", choices=["yes", "no"]
         )
         == "yes"
     )
