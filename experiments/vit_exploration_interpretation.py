@@ -71,150 +71,132 @@ def interpret(
     capping: str = "",
 ) -> None:
     """
-    Interpret and visualize the effects of specific patches on the model's predictions.
+    Interpret and visualize the effect of selected patch embeddings on the model's prediction.
 
     Args:
-        model: The ViT model used for predictions.
-        decoder: A decoder to reconstruct images from their embeddings.
-        input_embedding: The embedding of the input image.
-        output_embedding: The output embedding from the model after processing the input.
-        iteration: The iteration number of the exploration process.
-        eq_class_patch_ids: List of indices for patches to explore.
-        img_out_dir: The directory to save the output images.
-
-    Returns:
-        None. Saves the interpreted image with marked patches to the specified directory.
+        original_image: The original input image tensor (C, H, W).
+        model: The Vision Transformer (ViT) model.
+        decoder: A decoder that maps embeddings back to image space.
+        input_embedding: The latent embedding representation of the input.
+        iteration: Current iteration count (for naming output).
+        eq_class_patch_ids: List of patch indices to modify (excluding [CLS]).
+        device: Device to perform computations on.
+        means, sds: For denormalization.
+        img_out_dir: Directory where results are saved.
+        capping: Not used directly here (placeholder).
     """
+    input_embedding = input_embedding.to(device, original_image.dtype)
+    original_image = original_image.to(device)
+    input_embedding = input_embedding.detach()
 
+    width, height = original_image.shape[1:]
+    patch_size = model.embedding.patch_size
+
+    model.eval()
+    json_stats = {}
+
+    # -- Original prediction --
     with torch.no_grad():
-        input_embedding = input_embedding.to(device, original_image.dtype)
-        width, height = original_image.shape[1:]
-        model.eval()
-        json_stats = {}
-        original_image_pred = model(original_image.to(device).unsqueeze(0))[0]
-        json_stats["original_image_pred_proba"] = (
-            original_image_pred  # prediction probabilities from original image
-        ).cpu()
-        json_stats["original_image_pred"] = torch.argmax(
-            original_image_pred
-        ).item()  # prediction from original image
-        
+        orig_pred_logits = model(original_image.unsqueeze(0))[0]
+        json_stats["original_image_pred_proba"] = orig_pred_logits.cpu()
+        json_stats["original_image_pred"] = torch.argmax(orig_pred_logits).item()
+
+        # -- Prediction from embedding --
         output_embedding, _ = model.encoder(input_embedding.unsqueeze(0))
+        emb_pred_logits = model.classifier(output_embedding[:, 0])
+        json_stats["embedding_pred_proba"] = emb_pred_logits.cpu()
+        json_stats["embedding_pred"] = torch.argmax(emb_pred_logits).item()
 
-        pred_proba = model.classifier(
-            output_embedding[:, 0]
-        )  # prediction prababilities from modified embedding at a certain iteration
-        json_stats["embedding_pred_proba"] = pred_proba.cpu()
-        json_stats["embedding_pred"] = torch.argmax(
-            pred_proba
-        ).item()  # prediction from modified embedding at a certain iteration
+    # -- Remove CLS token index (assumed to be at index 0) --
+    num_total_patches = (width // patch_size) * (height // patch_size)
+    eq_class_patch_ids = [p for p in eq_class_patch_ids if 1 <= p <= num_total_patches]
 
-        input_embedding = input_embedding.detach()
-        
-        # select those patches to replace with modified ones
-        patch_idx = []
-        if eq_class_patch_ids:
-            for p in eq_class_patch_ids:
-                patch_idx.append(
-                    (
-                        np.array(
-                            np.unravel_index(  # TODO sistemare value error index -1 is out of bounds for array with size 256 per immagini dove non tutte le patch cambiano (non "all")
-                                p,  # -1 ?
-                                (
-                                    width // model.embedding.patch_size,
-                                    height // model.embedding.patch_size,
-                                ),
-                            )
-                        )
-                        * model.embedding.patch_size
-                    )[::-1]
-                )
-            mod_pixels = [[], []]
-            for p in patch_idx:
-                for i in range(model.embedding.patch_size):
-                    for j in range(model.embedding.patch_size):
-                        mod_pixels[0].append(p[0] + i)
-                        mod_pixels[1].append(p[1] + j)
+    # -- Decode modified image and apply selected patches --
+    decoded_image = decoder(input_embedding)
+    modified_image = original_image.clone()
 
-            # embeddings->image
-            decoded_image = decoder(input_embedding)
+    if eq_class_patch_ids:
+        mod_pixels = [[], []]  # [x coords], [y coords]
 
-            # replace patches in original image with those in modified image
-            modified_image = original_image.clone().to(device)
-            modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
-                :, :, mod_pixels[1], mod_pixels[0]
-            ]
-            json_stats["modified_patches"] = modified_image[
-                :, mod_pixels[1], mod_pixels[0]
-            ].cpu()
-        else:
-            modified_image = decoder(input_embedding).squeeze()
-            if len(modified_image.size()) == 2:
-                modified_image = modified_image.unsqueeze(0)
-            json_stats["modified_patches"] = modified_image.cpu()
-        modified_image_pred_proba = model(modified_image.unsqueeze(0))[
-            0
-        ].squeeze()  # prediction from translating embeddings back to image, and processing that image
+        for p in eq_class_patch_ids:
+            row, col = np.unravel_index(p - 1, (height // patch_size, width // patch_size))
+            x = col * patch_size
+            y = row * patch_size
+            for i in range(patch_size):
+                for j in range(patch_size):
+                    mod_pixels[0].append(x + i)
+                    mod_pixels[1].append(y + j)
 
-        if normalize:
-            modified_image = denormalize(
-                modified_image.to(device),
-                std=torch.tensor(sds).to(device),
-                mean=torch.tensor(means).to(device),
-            )
+        modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
+            :, :, mod_pixels[1], mod_pixels[0]
+        ]
 
-        json_stats["modified_image_pred"] = torch.argmax(
-            modified_image_pred_proba
-        ).item()
-        json_stats["modified_image_pred_proba"] = modified_image_pred_proba.cpu()
-        json_stats["modified_original_pred_proba"] = modified_image_pred_proba[
+        json_stats["modified_patches"] = modified_image[:, mod_pixels[1], mod_pixels[0]].cpu()
+    else:
+        modified_image = decoded_image.squeeze()
+        if modified_image.dim() == 2:
+            modified_image = modified_image.unsqueeze(0)
+        json_stats["modified_patches"] = modified_image.cpu()
+
+    # -- Predict again using reconstructed image --
+    with torch.no_grad():
+        mod_logits = model(modified_image.unsqueeze(0))[0].squeeze()
+        json_stats["modified_image_pred"] = torch.argmax(mod_logits).item()
+        json_stats["modified_image_pred_proba"] = mod_logits.cpu()
+        json_stats["modified_original_pred_proba"] = mod_logits[
             json_stats["original_image_pred"]
-        ].item()  # this is to compare probabilities in case the prediction has changed
+        ].item()
 
-        fname = os.path.join(
-            img_out_dir,
-            f"{iteration}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
+    # -- Save visualization --
+    if normalize:
+        modified_image = denormalize(
+            modified_image,
+            std=torch.tensor(sds).to(device),
+            mean=torch.tensor(means).to(device),
         )
-        patches_fname = os.path.join(
-            img_out_dir,
-            f"patches-{iteration}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
-        )
-        if not os.path.exists(img_out_dir):
-            os.makedirs(img_out_dir)
-        save_image(
-            modified_image/255,
-            fname,
-            format="png",
-        )
-        _, ax = plt.subplots()
-        if modified_image.size(0) == 1:
-            ax.imshow(
-                modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy()/255,
-                cmap="gray",
-                # norm=Normalize(vmin=0, vmax=1),
+
+    if not os.path.exists(img_out_dir):
+        os.makedirs(img_out_dir)
+
+    img_fname = os.path.join(
+        img_out_dir,
+        f"{iteration}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
+    )
+    patches_fname = os.path.join(
+        img_out_dir,
+        f"patches-{iteration}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.png",
+    )
+
+    save_image(modified_image, img_fname, format="png")
+
+    # -- Plot patch outlines --
+    _, ax = plt.subplots()
+    img_np = modified_image.permute(1, 2, 0).detach().cpu().numpy()
+    if modified_image.size(0) == 1:
+        ax.imshow(img_np.squeeze(), cmap="gray")
+    else:
+        ax.imshow(img_np)
+
+    for p in eq_class_patch_ids:
+        row, col = np.unravel_index(p - 1, (height // patch_size, width // patch_size))
+        x, y = col * patch_size, row * patch_size
+        ax.add_patch(
+            Rectangle(
+                (x - 0.5, y - 0.5),
+                patch_size,
+                patch_size,
+                linewidth=1,
+                edgecolor="r",
+                facecolor="none",
             )
-        else:
-            ax.imshow(modified_image.permute(1, 2, 0).squeeze().detach().cpu().numpy()/255)
-        for p in patch_idx:
-            ax.add_patch(
-                Rectangle(
-                    tuple(p + np.array([-0.5, -0.5])),
-                    model.embedding.patch_size,
-                    model.embedding.patch_size,
-                    linewidth=1,
-                    edgecolor="r",
-                    facecolor="none",
-                )
-            )
-
-        plt.savefig(patches_fname)
-        plt.close()
-
-        json_fname = os.path.join(
-            img_out_dir,
-            f"{iteration}-stats.pkl",
         )
-        save_object(json_stats, json_fname)
+
+    plt.savefig(patches_fname)
+    plt.close()
+
+    # -- Save stats --
+    json_fname = os.path.join(img_out_dir, f"{iteration}-stats.pkl")
+    save_object(json_stats, json_fname)
 
 
 def parse_args() -> argparse.Namespace:

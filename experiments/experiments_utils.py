@@ -9,6 +9,7 @@ import json
 import string
 from typing import Any, List, Tuple
 import pickle
+from PIL import Image
 import torch
 from torchvision import transforms
 from torchvision.io import read_image, ImageReadMode
@@ -179,17 +180,11 @@ def load_and_transform_raw_image(img_path: str) -> torch.Tensor:
                 [transforms.Normalize((MNIST_MEAN,), (MNIST_STD,))]
             )
     else:
-        transform = torch.nn.Identity()
+        transform = transforms.ToTensor()
 
     if os.path.isfile(img_path):
-        if "mnist" in img_path:
-            image = transform(
-                read_image(img_path, mode=ImageReadMode.GRAY)
-            ).to(torch.float32)
-        else:
-            image = transform(
-                read_image(img_path, mode=ImageReadMode.RGB)
-            ).to(torch.float32)
+        image = Image.open(img_path).convert("L" if "mnist" in img_path.lower() else "RGB")
+        image = transform(image).to(torch.float32)
         return image
     else:
         raise FileNotFoundError(f"No such file: '{img_path}'")
