@@ -68,7 +68,7 @@ def generate_relevance(model, input, device, index=None):
         R += apply_self_attention_rules(R, cam)
         del grad
         del cam
-    return R[0, 1:]
+    return R[0, :]
 
 
 def main():

@@ -102,7 +102,7 @@ if __name__ == "__main__":
             # Compute and save configs
             V_patches = image.shape[1] // model.patcher.patch_size
             H_patches = image.shape[2] // model.patcher.patch_size
-            tot_patches = H_patches * V_patches
+            tot_patches = H_patches * V_patches + 1
             N_patches = [
                 1,
                 tot_patches // 4,
@@ -117,15 +117,24 @@ if __name__ == "__main__":
 
             transformer_attribution = generate_relevance(
                 model.to(device), x.to(device), device=device
-            ).detach()
-            patches_attribution = (
-                transformer_attribution.reshape((V_patches, -1, H_patches))
-                .cpu()
-                .numpy()
-                .mean(axis=1)
-            )
-            sorted_idx = np.argsort(patches_attribution, axis=None)[::-1]
-            sorted_scores = np.sort(patches_attribution, axis=None)[::-1]
+            ).detach().squeeze(0).cpu().numpy()  # Shape: [num_tokens]
+
+            # CLS token attribution is the first token
+            cls_attribution = transformer_attribution[0]
+
+            # Flatten the patch attributions and shift their indices by 1
+            patch_attributions = transformer_attribution[1:]
+            patch_attributions = patch_attributions.reshape((V_patches * H_patches,))
+
+            # Combine CLS + patches, CLS at index 0, patches at 1...N
+            all_attributions = np.concatenate([[cls_attribution], patch_attributions])
+
+            # Generate shifted indices: CLS is 0, patch indices are 1 to N
+            all_indices = np.arange(len(all_attributions))
+
+            # Sort indices based on relevance scores
+            sorted_idx = all_indices[np.argsort(all_attributions)[::-1]]
+            sorted_scores = np.sort(all_attributions)[::-1]
 
             for n, a in zip(N_patches, perc):
                 
@@ -137,7 +146,7 @@ if __name__ == "__main__":
                     "patch_dim": model.patcher.patch_size,
                 }
 
-            del patches_attribution
+            del patch_attributions
             del transformer_attribution
             gc.collect()
 
