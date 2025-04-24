@@ -49,6 +49,22 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help="Where to run this experiment",
     )
+    parser.add_argument(
+        "--continue-from",
+        type=str,
+        help="Directory containing previous iteration for the selected experiments. If this argument is used, this experiment will continue from these previous iterations. res_path will be ignored, as further iterations will be saved in the same experiment path.",
+    )
+    parser.add_argument(
+        "--extra-iterations",
+        type=int,
+        help="How many extra iteration to continue the experiment.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default = 16,
+        help="Batch size.",
+    )
     parser.add_argument("--cap-ex", default=True)
 
     arguments = parser.parse_args()
@@ -67,6 +83,36 @@ def main():
     device = torch.device(args.device)
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
+    if args.continue_from is not None:  
+        if not os.path.exists(args.continue_from):
+            raise FileNotFoundError(
+                "The directory selected for continuing the experiment does not exist."
+            )
+        if os.path.basename(args.experiment_path) not in args.continue_from:
+            raise ValueError(
+                "The directory for continuing experiment must match the metadata experiment directory."
+            )
+        if args.extra_iterations is None:
+            raise ValueError(
+                "Specify how many iterations to perform for continuing the experiment"
+            )
+        n_iterations = params["iterations"] + args.extra_iterations
+        start_iteration = params["iterations"]
+        params["iterations"] = n_iterations
+        save_json(os.path.join(args.experiment_path, "parameters.json"), params)
+
+    else:
+        if args.out_dir is None:
+            raise ValueError("No output path specified in out-dir argument.")
+        str_time = time.strftime("%Y%m%d-%H%M%S")
+        res_path = os.path.join(
+            args.out_dir, os.path.basename(args.experiment_path) + "-" + str_time
+        )
+        if not os.path.exists(res_path):
+            os.makedirs(res_path)
+        n_iterations = params["iterations"]
+        start_iteration = 0
+        
     txts, names = load_raw_sents(args.experiment_path)
     logging.set_verbosity_error()
     bert_tokenizer, bert_model = load_bert_model(
