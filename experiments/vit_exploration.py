@@ -76,13 +76,15 @@ def parse_args() -> argparse.Namespace:
             "cuda" if torch.cuda.is_available() else "cpu"
         ).type
     else:
-        arguments.device = torch.device(arguments.device).type
+        arguments.device = torch.device(arguments.device)
 
     return arguments
 
 
 def main():
     args = parse_args()
+    if args.experiment_path.endswith("/"):
+        args.experiment_path = args.experiment_path[:-1]
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
     if args.continue_from is not None:
@@ -114,20 +116,28 @@ def main():
             os.makedirs(res_path)
         n_iterations = params["iterations"]
         start_iteration = 0
+
     device = torch.device(args.device)
     images, names = load_and_transform_raw_images(args.experiment_path)
     #images = images.to(device)
     batch_size = args.batch_size
 
-    model_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
+    models_filename = [f for f in os.listdir(params["model_path"]) if f.endswith(".pt")]
+    model_filename = models_filename[0]
+    for f in models_filename:
+        if "final.pt" in f:
+            model_filename = f
+            break
+    
     model, _ = load_model(
-        model_path=os.path.join(params["model_path"], model_filename[0]),
+        model_path=os.path.join(params["model_path"], model_filename),
         config_path=os.path.join(params["model_path"], "config.json"),
         device=torch.device("cpu"),
     )
     deactivate_dropout_layers(model)
     model = model.to(device)
 
+    # Patching and embedding layers
     input_patches = model.patcher(images).to(device)
     # input_patches.shape = (len(images), N_patches, N_channels*kernel_size**2)
     patches_embeddings = model.embedding(input_patches).cpu()
@@ -225,6 +235,8 @@ def main():
                         max_embeddings=max_embs,
                         start_iteration=start_iteration,
                         distance=distance,
+                        retain_top_k=10,
+                        degrowth=params['degrowth'] if 'degrowth' in params else False
                     )
                     pbar.update(1)
                 except Exception as e:

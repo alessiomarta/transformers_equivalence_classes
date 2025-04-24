@@ -11,14 +11,19 @@ import logging as log
 import time
 from transformers import logging
 import torch
-from simec.logics import explore, ExplorationException
-from experiments.experiments_utils import (
-    load_bert_model,
-    deactivate_dropout_layers,
+import sys
+from tqdm import tqdm
+sys.path.append("./")
+
+from experiments_utils import (
     load_raw_sents,
+    deactivate_dropout_layers,
+    load_bert_model,
     load_json,
+    save_json,
     load_object,
 )
+from simec.logics import explore, ExplorationException
 
 
 # Configure the logger
@@ -39,6 +44,16 @@ def parse_args() -> argparse.Namespace:
         help="Directory containing data, config.json, and parameters.json. Automatically created with prepare_experiment.py",
     )
     parser.add_argument(
+        "--continue-from",
+        type=str,
+        help="Directory containing previous iteration for the selected experiments. If this argument is used, this experiment will continue from these previous iterations. res_path will be ignored, as further iterations will be saved in the same experiment path.",
+    )
+    parser.add_argument(
+        "--extra-iterations",
+        type=int,
+        help="How many extra iteration to continue the experiment.",
+    )
+    parser.add_argument(
         "--out-dir",
         type=str,
         required=True,
@@ -50,19 +65,9 @@ def parse_args() -> argparse.Namespace:
         help="Where to run this experiment",
     )
     parser.add_argument(
-        "--continue-from",
-        type=str,
-        help="Directory containing previous iteration for the selected experiments. If this argument is used, this experiment will continue from these previous iterations. res_path will be ignored, as further iterations will be saved in the same experiment path.",
-    )
-    parser.add_argument(
-        "--extra-iterations",
-        type=int,
-        help="How many extra iteration to continue the experiment.",
-    )
-    parser.add_argument(
         "--batch-size",
         type=int,
-        default = 16,
+        default = 1,
         help="Batch size.",
     )
     parser.add_argument("--cap-ex", default=True)
@@ -80,10 +85,11 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    device = torch.device(args.device)
+    if args.experiment_path.endswith("/"):
+        args.experiment_path = args.experiment_path[:-1]
     params = load_json(os.path.join(args.experiment_path, "parameters.json"))
     config = load_json(os.path.join(args.experiment_path, "config.json"))
-    if args.continue_from is not None:  
+    if args.continue_from is not None:
         if not os.path.exists(args.continue_from):
             raise FileNotFoundError(
                 "The directory selected for continuing the experiment does not exist."
@@ -100,7 +106,6 @@ def main():
         start_iteration = params["iterations"]
         params["iterations"] = n_iterations
         save_json(os.path.join(args.experiment_path, "parameters.json"), params)
-
     else:
         if args.out_dir is None:
             raise ValueError("No output path specified in out-dir argument.")
@@ -112,106 +117,129 @@ def main():
             os.makedirs(res_path)
         n_iterations = params["iterations"]
         start_iteration = 0
-        
+
+    device = torch.device(args.device)
     txts, names = load_raw_sents(args.experiment_path)
+    batch_size = args.batch_size
+
     logging.set_verbosity_error()
-    bert_tokenizer, bert_model = load_bert_model(
+    tokenizer, model = load_bert_model(
         params["model_path"], mask_or_cls=params["objective"], device=device
     )
-    deactivate_dropout_layers(bert_model)
-    bert_model = bert_model.to(device)
+    deactivate_dropout_layers(model)
+    model = model.to(device)    
 
-    str_time = time.strftime("%Y%m%d-%H%M%S")
-    res_path = os.path.join(
-        args.out_dir, os.path.basename(args.experiment_path) + "-" + str_time
+    # Tokenizing and embedding layers
+    input_tokens = tokenizer(
+        txts,
+        return_tensors="pt",
+        return_attention_mask=False,
+        add_special_tokens=False,
+        padding = True
+    ).to(device)
+    token_embeddings = model.bert.embeddings(**input_tokens).cpu()
+    token_embeddings = torch.utils.data.TensorDataset(token_embeddings)
+    sent_loader = torch.utils.data.DataLoader(
+        token_embeddings,
+        batch_size=batch_size,
+        shuffle=False,
+        pin_memory=True
     )
-    if not os.path.exists(res_path):
-        os.makedirs(res_path)
 
-    sentence_embeddings = []
-    if params["objective"] == "mlm":
-        # in this case, we need to go one by one because we replace token with [MASK]
-        for idx, txt in enumerate(txts):
-            tokenized_input = bert_tokenizer(
-                txt,
-                return_tensors="pt",
-                return_attention_mask=False,
-                add_special_tokens=False if txt.strip().startswith("[CLS]") else True,
-                padding="max_length",
-            )
-            tokenized_input["input_ids"][0][
-                [config[names[idx]]["objective"]]
-            ] = bert_tokenizer.mask_token_id
-            sentence_embeddings.append(
-                bert_model.bert.embeddings(**tokenized_input.to(device)).to(device)
-            )
-    else:  # we can go in parallel
-        tokenized_input = bert_tokenizer(
-            txts,
-            return_tensors="pt",
-            return_attention_mask=False,
-            add_special_tokens=False if txts[0].startswith("[CLS]") else True,
-            padding="max_length",
-        )
-        sentence_embeddings = (
-            bert_model.bert.embeddings(**tokenized_input.to(device))
-            .unsqueeze(1)
-            .to(device)
-        )
+    algorithms = ["simec"]
+    if params["algo"] == ["both"]:
+        algorithms.append("simexp")
+    elif params["algo"] == "simexp":
+        algorithms[0] = "simexp"
 
     min_embs = load_object(os.path.join(args.experiment_path, "min_distribution.pkl"))
     max_embs = load_object(os.path.join(args.experiment_path, "max_distribution.pkl"))
 
-    algorithms = ["simec"]
-    if params["algo"] == "both":
-        algorithms.append("simexp")
-    elif params["algo"] == "simexp":
-        algorithms[0] = "simexp"
     for algorithm in algorithms:
-        print(f"\t{algorithm.upper()} exploration phase")
-        for idx, sentence_embedding in enumerate(sentence_embeddings):
-            if params["objective"] == "mlm":
-                if (
-                    isinstance(config[names[idx]]["objective"], list)
-                    and len(config[names[idx]]["objective"]) > 1
-                ):
-                    print("Skipping sentence because objective has more than 1 token.")
-                    continue
+        pbar = tqdm(total=params["repeat"] * len(sent_loader), desc=f"{args.experiment_path}, {algorithm.upper()}")
+        for idx, input_embedding in enumerate(sent_loader):
+            # input_embedding[0].shape = (batch_size, N_patches+1, embedding_size)
+            image_indices = (batch_size*idx, batch_size*(idx+1))
+            file_names = names[image_indices[0]:image_indices[1]]
+
+            # Parameters
+            eq_class_emb_ids = [config[name]["explore"] for name in file_names]
+            pred_id = [config[name]["objective"] for name in file_names]
+
             for r in range(params["repeat"]):
-                print(
-                    f"Sentence:{names[idx]}\t{idx+1}/{len(txts)}\tRepetition: {r+1}/{params['repeat']}"
-                )
                 try:
+                    # load last iteration if continuing another experiment
+                    if args.continue_from is not None:
+                        start_embeddings = []
+                        distance = []
+                        start_iteration = []
+                        for name in file_names:
+                            exp_dir = os.path.join(
+                                args.continue_from,
+                                f"{algorithm}-{name.split('.')[0]}-{str(r+1)}",
+                            )
+                            list_dir = os.listdir(exp_dir)
+                            pkl_files = [
+                                f
+                                for f in list_dir
+                                if os.path.splitext(os.path.basename(f))[0].isnumeric()
+                            ]
+                            last_pkl = load_object(
+                                os.path.join(
+                                    exp_dir,
+                                    sorted(pkl_files, key=lambda x: int(x.split(".")[0]))[
+                                        -1
+                                    ],
+                                )
+                            )
+                            start_embeddings.append(last_pkl["input_embedding"])
+                            distance.append(last_pkl["distance"])
+                            start_iteration.append(last_pkl['iteration'])
+
+                        start_embeddings = torch.stack(start_embeddings)
+                        distance = torch.stack(distance)
+                        start_iteration = min(start_iteration)
+
+                    else:
+                        exp_dir = [
+                            os.path.join(
+                                res_path,
+                                f"{algorithm}-{name.split('.')[0]}-{str(r+1)}",
+                            )
+                        for name in file_names]
+                        distance = None
+                        start_embeddings = input_embedding[0]
+                        start_iteration = 0
+
                     explore(
-                        same_equivalence_class=algorithm == "simec",
-                        input_embedding=sentence_embedding,
-                        model=bert_model.bert.encoder,
-                        eq_class_emb_ids=(
-                            None
-                            if config[names[idx]]["explore"] == []
-                            else config[names[idx]]["explore"]
-                        ),
-                        pred_id=config[names[idx]]["objective"],
-                        device=device,
+                        same_equivalence_class=(algorithm == "simec"),
+                        input_embedding=start_embeddings.to(device),
+                        input_model=model,
                         threshold=params["threshold"],
                         delta_multiplier=params["delta_mult"],
-                        n_iterations=params["iterations"],
-                        out_dir=os.path.join(
-                            res_path,
-                            f"{algorithm}-{names[idx].split('.')[0]}-{str(r+1)}",
-                        ),
+                        n_iterations=n_iterations,
+                        pred_id=pred_id,
+                        eq_class_emb_ids=eq_class_emb_ids,
+                        device=device,
+                        out_dir=exp_dir,
                         save_each=params["save_each"],
                         capping=True,
                         min_embeddings=min_embs,
                         max_embeddings=max_embs,
+                        start_iteration=start_iteration,
+                        distance=distance,
+                        retain_top_k=5,
+                        degrowth=params['degrowth'] if 'degrowth' in params else False,
+                        dtype = torch.float64
                     )
+                    pbar.update(1)
                 except Exception as e:
                     log.error(
                         "Unhandled exception during exploration:\nContext:\n"
                         "res_path: %s\nalgorithm: %s\nname: %s\nparams_repeat: %d\nError: %s",
-                        res_path,
+                        exp_dir,
                         algorithm,
-                        names[idx],
+                        file_names,
                         r + 1,
                         e,
                         exc_info=True,

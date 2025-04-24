@@ -192,6 +192,11 @@ def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_input
             else os.path.join(folder, f"config_{patch_option}.json")
         )
         config_data = load_json(config_path)
+        if "mnist" in folder or "cifar" in folder:
+            for k in config_data:
+                config_data[k]["explore"] = [p+1 for p in config_data[k]["explore"]]
+                if patch_option == "all":
+                    config_data[k]["explore"] = config_data[k]["explore"] + [0]
         all_config_data.update(config_data)
 
     def sample_files(folder, sample_size):
@@ -290,8 +295,9 @@ def generate_experiment_combinations(
         input_values = exp["inputs"]
     # loading model
     if any(k in exp["exp_name"] for k in ["cifar", "mnist"]):
+        
         model_filename = next(
-            f for f in os.listdir(exp["model_path"]) if f.endswith(".pt")
+            f for f in os.listdir(exp["model_path"]) if f.endswith("final.pt")
         )
         mdl, _ = load_model(
             model_path=os.path.join(exp["model_path"], model_filename),
@@ -350,13 +356,8 @@ def generate_experiment_combinations(
     for delta in delta_mult_values:
         exp["delta_mult"] = delta
 
-        # Define patch exploration options (or use specific ones for targeted experiments)
-        patch_list = (
-            [exp["patches"]] if exp["patches"] == "target-word" else patch_options
-        )
-
         # Iterate over patch options
-        for patch_opt in patch_list:
+        for patch_opt in patch_options:
             exp["patches"] = patch_opt
 
             # Construct a descriptive name for the experiment
@@ -537,6 +538,13 @@ def interactive_argument_parser():
     args["cap_ex"] = (
         get_user_input(
             "Enable capped execution? (yes/no)", default="yes", choices=["yes", "no"]
+        )
+        == "yes"
+    )
+
+    args["degrowth"] = (
+        get_user_input(
+            "Check eigenvector is opposite to the gradient? (yes/no)", default="no", choices=["yes", "no"]
         )
         == "yes"
     )

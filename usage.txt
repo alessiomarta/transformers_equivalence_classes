@@ -4,6 +4,9 @@ cd experiments/models
 python3 train_vit.py --config cifar-config.json --dataset CIFAR10 --batch_size 64 --epochs 100 --lr 0.01 --save_every 25 --device cuda:0 --exp_name cifar10_experiment --base_dir ../..
 python3 train_vit.py --config mnist-config.json --dataset MNIST --batch_size 64 --epochs 20 --lr 0.01 --save_every 5 --device cuda:0 --exp_name mnist_experiment --base_dir ../..
 
+1a. Test ViT model
+python models/test_vit.py --model_path ../models/mnist_experiment/model_final.pt
+
 2. Convert images and texts in the expected format
 
 cd data-preprocessing
@@ -14,12 +17,21 @@ cd experiments
 python3 prepare_experiment.py --default
 
 4a. For a single exploration:
-python3 vit_exploration.py --experiment-path ./experiments_data/cifar-1-50-all --out-dir ../res
+python3 vit_exploration.py --experiment-path ./experiments_data/mnist-1p0-32-one --out-dir ../res
+python3 bert_exploration.py --experiment-path ./experiments_data/winobias-1p0-32-target-word --out-dir ../res
 
 4b. For a single interpretation:
-python3 vit_exploration_interpretation.py --experiment-path experiments_data/cifar-1-50-all --results-dir ../res/cifar-1-50-all-20250403-200221
+python3 vit_exploration_interpretation.py --experiment-path experiments_data/cifar-1p0-32-all --results-dir ../res/cifar-1p0-32-all-20250403-200221
+python3 bert_exploration_interpretation.py --experiment-path experiments_data/winobias-1p0-32-target-word --results-dir ../res/winobias-1p0-32-target-word-20250416-075008
 
 4c. For all explorations and interpretation:
 cd sh-scripts
 bash image-experiments.sh
+
+4. Group experiments
+python group_results.py --experiment-path ../experiments/experiments_data/ --results-dir ../res
+
+5. Run dashboard
+cd dashboard
+python app.py
 
