@@ -226,9 +226,9 @@ def parse_args() -> argparse.Namespace:
             "cuda" if torch.cuda.is_available() else "cpu"
         ).type
     else:
-        arguments.device = torch.device(arguments.device).type
+        arguments.device = torch.device(arguments.device)
     return arguments
-#--experiment-path experiments_data/mnist-0p1-32-all --results-dir ../res/mnist-0p1-32-all-20250414-133507 --device cpu
+#--experiment-path experiments_data_test/mnist-test-1p0-16-all --results-dir ../res/mnist-test-1p0-16-all-20250423-070701 --device cpu
 
 
 def main():

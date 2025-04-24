@@ -229,6 +229,7 @@ def main():
                         start_iteration=start_iteration,
                         distance=distance,
                         retain_top_k=5,
+                        degrowth=params['degrowth'] if 'degrowth' in params else False,
                         dtype = torch.float64
                     )
                     pbar.update(1)

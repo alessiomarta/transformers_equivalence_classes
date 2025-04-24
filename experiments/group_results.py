@@ -105,6 +105,13 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Directory where the exploration output from this experiment is stored.",
     )
+    
+    parser.add_argument(
+        "--out-name",
+        type=str,
+        required=True,
+        help="Name to give to the final output file.",
+    )
 
     arguments = parser.parse_args()
 
@@ -138,9 +145,12 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset not in ["cifar"]:#"mnist"]:
+        if dataset not in ["mnist"]:
             continue  # TODO remove when everything is ready
-        if p["delta_mult"] == 10.0:
+        if p["inputs"] != 16:
+            continue
+        
+        if p["delta_mult"] not in [0.1, 1.0]:
             continue
         
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
@@ -163,6 +173,8 @@ if __name__ == "__main__":
                             and p["patches"] in f
                             and algorithm in f
                             and f.split("-")[-1] == str(repetition)
+                            and "test" not in f
+                            and f"-{p['inputs']}-" in f
                         ):
                             exp_file.append(f)
                     for f in exp_file:
@@ -184,6 +196,8 @@ if __name__ == "__main__":
                                     if p.split("-")[0] == str(iteration)
                                 )
                             )
+                            if interpretation_pickle["modified_patches"].detach().cpu().squeeze(0).dim()>1:
+                                print()
                             results.append(
                                 tuple(
                                     [
@@ -273,7 +287,7 @@ if __name__ == "__main__":
 
     print("Saving embeddings...")
     savez_compressed(
-        os.path.join(res_dir, "all_experiments_embeddings.npz"),
+        os.path.join(res_dir, f"{args.out_name.lower()}_embeddings.npz"),
         distance=results["distance"].values,
         original_image_pred_proba=results["original_image_pred_proba"].values,
         embedding_pred_proba=results["embedding_pred_proba"].values,
@@ -295,5 +309,5 @@ if __name__ == "__main__":
     ]
     print("Saving parquet...")
     results[non_array_columns].to_parquet(
-        os.path.join(res_dir, "all_experiments_results.parquet"), index=False
+        os.path.join(res_dir, f"{args.out_name.lower()}_results.parquet"), index=False
     )

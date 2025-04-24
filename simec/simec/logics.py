@@ -8,7 +8,6 @@ This module leverages PyTorch for tensor operations and gradient computations.
 
 import os
 import json
-import pathlib
 import time
 from tqdm import tqdm
 from typing import List, Iterable
@@ -59,7 +58,7 @@ class OutputOnlyModel(torch.nn.Module):
                 index = select[:,pred_id,:]
             )
 
-        return y
+        return y, torch.argmax(y, dim = -1)
 
 
 def save_object(obj, filename):
@@ -110,16 +109,21 @@ def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None, select: torc
         select = [None]*nn_input.shape[0]
 
     # nn_input.shape = (batch_size, N_patches+1, embedding_size)
-    batch_jacobian = torch.stack([
-        jacrev(model, argnums = 0)(
+    batch_jacobian, predictions = list(zip(*[
+        jacrev(model, argnums = 0, has_aux=True)(
             x, 
             pred_id[i],
-            select[i],
+            select[i]
         )
-    for i,x in enumerate(nn_input.split(1))])
+    for i,x in enumerate(nn_input.split(1))]))
+    batch_jacobian = torch.stack(batch_jacobian)
+    predictions = torch.stack(predictions)
     # batch_jacobian.shape = (batch_size, output_size, (N_patches+1), embedding_size)
 
-    return torch.squeeze(batch_jacobian, dim = list(range(1,batch_jacobian.dim())))
+    batch_jacobian = torch.squeeze(batch_jacobian, dim = list(range(1,batch_jacobian.dim())))
+    predictions = torch.squeeze(predictions, dim = list(range(1,predictions.dim())))
+
+    return batch_jacobian, predictions
 
 
 def pullback(
@@ -128,7 +132,8 @@ def pullback(
     model: torch.nn.Module = None,
     eq_class_emb_ids: List[List[int]] = None,
     select: torch.Tensor = None,
-    pred_id: List[int] = None
+    pred_id: List[int] = None,
+    degrowth: bool = True
 ):
     """
     Computes the pullback metric tensor using the given input and output embeddings and a metric tensor g.
@@ -152,8 +157,9 @@ def pullback(
     if pred_id is None:
         pred_id = [0]*input_simec.shape[0]
 
-    jac = jacobian(input_simec, model, select=select, pred_id = pred_id)
+    jac, predictions = jacobian(input_simec, model, select=select, pred_id = pred_id)
     # jac.shape = (batch_size, output_size, N_patches+1, embedding_size)
+    # predictions.shape = (batch_size,)
     while jac.dim() < 4:
         jac = torch.unsqueeze(jac, 0)
 
@@ -189,6 +195,17 @@ def pullback(
         # eigenvalues.shape = (batch_size, max_len, embedding_size)
         # eigenvectors.shape = (batch_size, max_len, embedding_size, embedding_size)
 
+        if degrowth:
+            jac_eigen_dot_prod = torch.bmm(jac, torch.flatten(eigenvectors, end_dim=1))
+            # jac_eigen_dot_prod.shape = (batch_size*max_len, output_size, embedding_size)
+            jac_eigen_dot_prod = torch.gather(jac_eigen_dot_prod, dim = 1, index = predictions.repeat_interleave(max_len).unsqueeze(-1).unsqueeze(-1))
+            jac_eigen_dot_prod = torch.stack(
+                torch.chunk(jac_eigen_dot_prod, batch_size)
+            )
+            jac_eigen_dot_prod = torch.squeeze(jac_eigen_dot_prod, dim = -1)
+            # jac_eigen_dot_prod.shape = (batch_size, max_len, embedding_size)
+            eigenvalues = torch.where(jac_eigen_dot_prod < 0, eigenvalues, torch.zeros_like(eigenvalues))
+
     return eigenvalues, eigenvectors
 
 
@@ -210,6 +227,7 @@ def explore(
     distance=None,
     start_iteration=0,
     retain_top_k: int = 10,
+    degrowth: bool = True,
     dtype = torch.float64
 ):
     """
@@ -256,7 +274,8 @@ def explore(
         indices = None
 
     # Build the identity matrix that we use as standard Riemannain metric of the output embedding space.
-    output_size = retain_top_k if retain_top_k else input_model.num_classes
+    output_size = min(retain_top_k, model.model.num_classes) if hasattr(model.model, "num_classes") else retain_top_k
+    output_size = min(output_size, model.model.num_labels) if hasattr(model.model, "num_labels") else output_size
     g = (
         torch.eye(output_size)
         .unsqueeze(0)
@@ -300,7 +319,8 @@ def explore(
             g=g,
             eq_class_emb_ids= eq_class_emb_ids,
             select=indices,
-            pred_id=pred_id
+            pred_id=pred_id,
+            degrowth=degrowth
         )
 
         # Detach values to reduce CUDA memory consumption

@@ -1,4 +1,5 @@
 import os
+import argparse
 import dash
 import pandas as pd
 import numpy as np
@@ -24,9 +25,9 @@ COLOR_MAP = {"simec": "rgb(229, 134, 6)", "simexp": "rgb(47, 138, 196)"}
 FILL_COLOR_MAP = {"simec": "rgba(229, 134, 6, 0.2)", "simexp": "rgba(47, 138, 196, 0.2)"}
 
 # ------------- Data Loading --------------------------
-def load_data():
-    df = pd.read_parquet(os.path.join(RES_DIR, "all_experiments_results.parquet"))
-    npz_data = np.load(os.path.join(RES_DIR, "all_experiments_embeddings.npz"), allow_pickle=True)
+def load_data(out_name):
+    df = pd.read_parquet(os.path.join(RES_DIR, f"{out_name}_results.parquet"))
+    npz_data = np.load(os.path.join(RES_DIR, f"{out_name}_embeddings.npz"), allow_pickle=True)
 
     for key in ["distance", "original_image_pred_proba", "embedding_pred_proba", "modified_image_pred_proba", "modified_image"]:
         df[key] = list(npz_data[key])
@@ -51,17 +52,29 @@ def load_data():
 # ------------- Aggregation ---------------------------
 def aggregate_data(df):
     def aggregate_cell(cell):
+        global c
         if isinstance(cell[0], (float, int)):
+            c += 1
             return np.mean(cell)
         if isinstance(cell[0], str):
             unique = list(set(cell))
+            c += 1
             return unique[0] if len(unique) == 1 else cell
         if isinstance(cell[0], np.ndarray):
-            return np.mean(np.stack(cell), axis=0)
+            try:
+                c += 1
+                return np.mean(np.stack(cell), axis=0)
+            except ValueError as e:
+                print(f"Shape mismatch in cell: {c}")
+                for i, arr in enumerate(cell):
+                    print(f"  Item {i} shape: {arr.shape}")
+                raise e
         return None
 
     grouped = df.groupby(["dataset", "iteration", "repetition", "patch_option", "delta_multiplier", "algorithm"]).agg(list)
     grouped.drop("input_name", axis=1, inplace=True)
+    global c 
+    c = -1
     grouped = grouped.map(aggregate_cell).reset_index()
 
     grouped["input_name"] = grouped["dataset"].apply(lambda s: f"agg_{s}")
@@ -95,7 +108,7 @@ def create_layout(input_names, delta_mults):
 
 # ------------- App & Callbacks ------------------------
 app = dash.Dash(__name__)
-df = load_data()
+df = load_data("mnist")
 df = aggregate_data(df)
 
 INPUT_NAMES = df["input_name"].unique().tolist()
@@ -146,5 +159,6 @@ def generate_all_figures(filtered_df, input_name):
     return [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8, fig9]
 
 # ------------- Run the App ---------------------------
-if __name__ == "__main__":
+
+if __name__ == "__main__":   
     app.run(debug=True) 

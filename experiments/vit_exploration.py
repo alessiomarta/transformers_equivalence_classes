@@ -76,7 +76,7 @@ def parse_args() -> argparse.Namespace:
             "cuda" if torch.cuda.is_available() else "cpu"
         ).type
     else:
-        arguments.device = torch.device(arguments.device).type
+        arguments.device = torch.device(arguments.device)
 
     return arguments
 
@@ -235,7 +235,8 @@ def main():
                         max_embeddings=max_embs,
                         start_iteration=start_iteration,
                         distance=distance,
-                        retain_top_k=10
+                        retain_top_k=10,
+                        degrowth=params['degrowth'] if 'degrowth' in params else False
                     )
                     pbar.update(1)
                 except Exception as e:

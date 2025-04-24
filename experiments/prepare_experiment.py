@@ -192,6 +192,11 @@ def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_input
             else os.path.join(folder, f"config_{patch_option}.json")
         )
         config_data = load_json(config_path)
+        if "mnist" in folder or "cifar" in folder:
+            for k in config_data:
+                config_data[k]["explore"] = [p+1 for p in config_data[k]["explore"]]
+                if patch_option == "all":
+                    config_data[k]["explore"] = config_data[k]["explore"] + [0]
         all_config_data.update(config_data)
 
     def sample_files(folder, sample_size):
