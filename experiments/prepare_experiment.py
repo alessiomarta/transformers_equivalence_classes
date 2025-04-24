@@ -192,11 +192,6 @@ def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_input
             else os.path.join(folder, f"config_{patch_option}.json")
         )
         config_data = load_json(config_path)
-        if "mnist" in folder or "cifar" in folder:
-            for k in config_data:
-                config_data[k]["explore"] = [p+1 for p in config_data[k]["explore"]]
-                if patch_option == "all":
-                    config_data[k]["explore"] = config_data[k]["explore"] + [0]
         all_config_data.update(config_data)
 
     def sample_files(folder, sample_size):
@@ -265,6 +260,8 @@ def generate_experiment(input_path, exp_dir, n_inputs, patch_option, fixed_input
     for input_file in all_sampled_files:
         shutil.copy(input_file, exp_dir)
         input_name = os.path.basename(input_file)
+        if not all_config_data[input_name.split(".")[0]]:
+            print(f"Warning: No config found for {input_name}")
         combined_config[input_name] = all_config_data.get(input_name.split(".")[0], {})
 
     combined_config_path = os.path.join(exp_dir, "config.json")

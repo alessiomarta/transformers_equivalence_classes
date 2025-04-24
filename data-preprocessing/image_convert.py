@@ -145,6 +145,8 @@ if __name__ == "__main__":
                     "img_dim": list(image.shape),
                     "patch_dim": model.patcher.patch_size,
                 }
+            if configs["all"][fname] == {}:
+                print(f"Warning: No config found for {fname}")
 
             del patch_attributions
             del transformer_attribution

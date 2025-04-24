@@ -145,10 +145,8 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset not in ["mnist"]:
+        if dataset not in ["mnist", "cifar"]:
             continue  # TODO remove when everything is ready
-        if p["inputs"] != 16:
-            continue
         
         if p["delta_mult"] not in [0.1, 1.0]:
             continue
@@ -173,7 +171,7 @@ if __name__ == "__main__":
                             and p["patches"] in f
                             and algorithm in f
                             and f.split("-")[-1] == str(repetition)
-                            and "test" not in f
+                            #and "test" not in f
                             and f"-{p['inputs']}-" in f
                         ):
                             exp_file.append(f)
@@ -196,8 +194,6 @@ if __name__ == "__main__":
                                     if p.split("-")[0] == str(iteration)
                                 )
                             )
-                            if interpretation_pickle["modified_patches"].detach().cpu().squeeze(0).dim()>1:
-                                print()
                             results.append(
                                 tuple(
                                     [
@@ -255,8 +251,6 @@ if __name__ == "__main__":
                                 )
                             )
                     
-                
-
     results = pd.DataFrame(
         results,
         columns=[

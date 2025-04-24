@@ -18,7 +18,7 @@ from figures import (
 )
 
 # ------------- Constants & Config ---------------------
-RES_DIR = "../res"
+RES_DIR = "../res_temp"
 PATCH_MAP = {"one": 1, "q1": 2, "q2": 3, "q3": 4, "all": 5}
 INVERSE_PATCH_MAP = {v: k for k, v in PATCH_MAP.items()}
 COLOR_MAP = {"simec": "rgb(229, 134, 6)", "simexp": "rgb(47, 138, 196)"}
@@ -52,18 +52,18 @@ def load_data(out_name):
 # ------------- Aggregation ---------------------------
 def aggregate_data(df):
     def aggregate_cell(cell):
-        global c
         if isinstance(cell[0], (float, int)):
-            c += 1
             return np.mean(cell)
         if isinstance(cell[0], str):
             unique = list(set(cell))
-            c += 1
             return unique[0] if len(unique) == 1 else cell
         if isinstance(cell[0], np.ndarray):
             try:
-                c += 1
-                return np.mean(np.stack(cell), axis=0)
+                stacked = np.stack(cell)
+                # Optionally: filter out arrays that are all NaN to avoid skew
+                mask_valid = ~np.isnan(stacked).all(axis=tuple(range(1, stacked.ndim)))
+                stacked = stacked[mask_valid]
+                return np.nanmean(stacked, axis=0)
             except ValueError as e:
                 print(f"Shape mismatch in cell: {c}")
                 for i, arr in enumerate(cell):
@@ -73,8 +73,6 @@ def aggregate_data(df):
 
     grouped = df.groupby(["dataset", "iteration", "repetition", "patch_option", "delta_multiplier", "algorithm"]).agg(list)
     grouped.drop("input_name", axis=1, inplace=True)
-    global c 
-    c = -1
     grouped = grouped.map(aggregate_cell).reset_index()
 
     grouped["input_name"] = grouped["dataset"].apply(lambda s: f"agg_{s}")
@@ -108,7 +106,7 @@ def create_layout(input_names, delta_mults):
 
 # ------------- App & Callbacks ------------------------
 app = dash.Dash(__name__)
-df = load_data("mnist")
+df = load_data("all_test_experiments")
 df = aggregate_data(df)
 
 INPUT_NAMES = df["input_name"].unique().tolist()

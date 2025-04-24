@@ -107,17 +107,21 @@ def interpret(
         json_stats["embedding_pred_proba"] = emb_pred_logits.cpu()
         json_stats["embedding_pred"] = torch.argmax(emb_pred_logits).item()
 
+    modified_image = original_image.clone()
     # -- Remove CLS token index (assumed to be at index 0) --
     num_total_patches = (width // patch_size) * (height // patch_size)
-    eq_class_patch_ids = [p for p in eq_class_patch_ids if 1 <= p <= num_total_patches]
-
-    # -- Decode modified image and apply selected patches --
-    decoded_image = decoder(input_embedding)
-    modified_image = original_image.clone()
-
-    if eq_class_patch_ids:
+    if eq_class_patch_ids == [0]: # only CLS had been modified, so no part of the decoded image is modified
+        # Create a tensor of None-equivalent (e.g., zeros or NaNs) the size of a patch
+        patch_shape = original_image[:, :patch_size, :patch_size].shape
+        # Option 1: fill with NaNs (better for later checks / visualizations)
+        modified_patch_tensor = torch.full(patch_shape, float('nan')).to(original_image.device)
+        # Optionally log it to json_stats if needed
+        json_stats["modified_patches"] = modified_patch_tensor.cpu()
+    else:
+        # -- Decode modified image and apply selected patches --
+        eq_class_patch_ids = [p for p in eq_class_patch_ids if 1 <= p <= num_total_patches]
+        decoded_image = decoder(input_embedding)
         mod_pixels = [[], []]  # [x coords], [y coords]
-
         for p in eq_class_patch_ids:
             row, col = np.unravel_index(p - 1, (height // patch_size, width // patch_size))
             x = col * patch_size
@@ -130,13 +134,8 @@ def interpret(
         modified_image[:, mod_pixels[1], mod_pixels[0]] = decoded_image[
             :, :, mod_pixels[1], mod_pixels[0]
         ]
-
         json_stats["modified_patches"] = modified_image[:, mod_pixels[1], mod_pixels[0]].cpu()
-    else:
-        modified_image = decoded_image.squeeze()
-        if modified_image.dim() == 2:
-            modified_image = modified_image.unsqueeze(0)
-        json_stats["modified_patches"] = modified_image.cpu()
+
 
     # -- Predict again using reconstructed image --
     with torch.no_grad():
@@ -169,30 +168,30 @@ def interpret(
 
     save_image(modified_image, img_fname, format="png")
 
-    # -- Plot patch outlines --
-    _, ax = plt.subplots()
-    img_np = modified_image.permute(1, 2, 0).detach().cpu().numpy()
-    if modified_image.size(0) == 1:
-        ax.imshow(img_np.squeeze(), cmap="gray")
-    else:
-        ax.imshow(img_np)
-
-    for p in eq_class_patch_ids:
-        row, col = np.unravel_index(p - 1, (height // patch_size, width // patch_size))
-        x, y = col * patch_size, row * patch_size
-        ax.add_patch(
-            Rectangle(
-                (x - 0.5, y - 0.5),
-                patch_size,
-                patch_size,
-                linewidth=1,
-                edgecolor="r",
-                facecolor="none",
+    if eq_class_patch_ids != [0]: # we want squares around those patches that are modified, so if we are modifying only CLS, it does not make sense to do this plot
+        # -- Plot patch outlines --
+        fig, ax = plt.subplots()
+        img_np = modified_image.permute(1, 2, 0).detach().cpu().numpy()
+        if modified_image.size(0) == 1:
+            ax.imshow(img_np.squeeze(), cmap="gray")
+        else:
+            ax.imshow(img_np)
+        for p in eq_class_patch_ids:
+            row, col = np.unravel_index(p - 1, (height // patch_size, width // patch_size))
+            x, y = col * patch_size, row * patch_size
+            ax.add_patch(
+                Rectangle(
+                    (x - 0.5, y - 0.5),
+                    patch_size,
+                    patch_size,
+                    linewidth=1,
+                    edgecolor="r",
+                    facecolor="none",
+                )
             )
-        )
 
-    plt.savefig(patches_fname)
-    plt.close()
+        plt.savefig(patches_fname)
+        plt.close(fig)
 
     # -- Save stats --
     json_fname = os.path.join(img_out_dir, f"{iteration}-stats.pkl")
