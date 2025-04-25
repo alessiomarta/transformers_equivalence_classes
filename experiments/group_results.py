@@ -6,6 +6,8 @@ import pickle
 from tqdm import tqdm
 import pandas as pd
 from numpy import savez_compressed, load, array
+from numpy import max as npmax
+from numpy.linalg import norm
 import torch
 
 
@@ -187,6 +189,8 @@ if __name__ == "__main__":
                                 else (iteration + 1) // p["save_each"]
                             )
                             input_emb = result_info["input_embedding"][it]
+                            input_emb_norm = norm(input_emb)
+                            input_emb_max = npmax(input_emb)
                             interpretation_pickle = load_pickle(
                                 next(
                                     os.path.join(f, "interpretation", p)
@@ -218,6 +222,8 @@ if __name__ == "__main__":
                                         result_info["distance"][it],  # distance
                                         result_info["delta"][it],  # delta
                                         input_emb,  # input_embedding
+                                        input_emb_norm, # input_embedding norm
+                                        input_emb_max, # input_embedding max
                                         result_info.get("time", None)[it],  # time
                                         repetition,
                                         interpretation_pickle[
@@ -269,6 +275,8 @@ if __name__ == "__main__":
             "distance",
             "delta",
             "input_embedding",
+            "input_embedding_norm",
+            "input_embedding_max",
             "time",
             "repetition",
             "original_image_pred_proba",
