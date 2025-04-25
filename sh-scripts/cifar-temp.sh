@@ -4,10 +4,10 @@ cd ../experiments
 
 for dir in experiments_data/*; do
     basename_dir=$(basename "$dir")
-    echo "Checking: $basename_dir"
+    #echo "Checking: $basename_dir"
 
-    # Only proceed if it's a MNIST or CIFAR experiment that also contains "16" in the name
-    if [[ ("$dir" == *mnist*) && ("$basename_dir" == *5p0* || "$basename_dir" == *10p0*)]]; then
+    # Only proceed if it's a CIFAR experiment 
+    if [[ "$dir" == *cifar* ]]; then
         echo "Running exploration for: $basename_dir"
 
         # Run exploration
@@ -26,7 +26,5 @@ for dir in experiments_data/*; do
         else
             echo "No matching result directory found for $basename_dir"
         fi
-    else
-        echo "Skipping: $basename_dir"
     fi
 done
