@@ -168,13 +168,18 @@ def plot_first_change_iteration(filtered):
 
     # Get first mismatch per element
     def get_mismatches(df, colname, label):
-        mismatches = (
-            df[df[colname]]
-            .groupby(["algorithm", "repetition", "element_id"])
-            .first()
-            .reset_index()
-        )
-        mismatches["Prediction Type"] = label
+        try:
+            mismatches = (
+                df[df[colname]]
+                .groupby(["algorithm", "repetition", "element_id"])
+                .first()
+                .reset_index()
+            )
+            mismatches["Prediction Type"] = label
+        except TypeError:
+            df_temp = df[df[colname]].copy()
+            df_temp["element_id"] = df_temp["element_id"].apply(lambda x: x[0])
+            mismatches = df_temp.groupby(["algorithm", "repetition", "element_id"]).first().reset_index() 
         return mismatches
 
     embedding_mismatches = get_mismatches(exploded_df, "embedding_class_mismatch", "Embedding")
@@ -377,7 +382,7 @@ def plot_embedding_all_class_prob(filtered, algo):
 
     return fig
 
-def plot_conf_matrix_orig_embed(filtered, n_classes, input_name=None, normalize=False):
+def plot_conf_matrix_orig_modified(filtered, n_classes, input_name=None, normalize=False):
     # Prepare label list
     class_labels = list(map(str, range(n_classes)))
 
@@ -419,3 +424,125 @@ def plot_conf_matrix_orig_embed(filtered, n_classes, input_name=None, normalize=
 
     return fig
 
+def plot_conf_matrix_orig_embed(filtered, n_classes, input_name=None, normalize=False):
+    # Prepare label list
+    class_labels = list(map(str, range(n_classes)))
+
+    # Extract true and predicted labels depending on input_name
+    if input_name and input_name.startswith("agg_"):
+        y_true = filtered["original_image_pred"].explode()
+        y_pred = filtered["embedding_pred"].explode()
+    else:
+        y_true = filtered["original_image_pred"]
+        y_pred = filtered["embedding_pred"]
+
+    # Convert to string for consistent labeling
+    y_true = y_true.astype(str)
+    y_pred = y_pred.astype(str)
+
+    # Compute confusion matrix
+    cm = confusion_matrix(y_true, y_pred, labels=class_labels)
+
+    if normalize:
+        cm = cm.astype("float") / cm.sum(axis=1, keepdims=True)
+        cm = np.nan_to_num(cm)  # Avoid NaNs from division by 0
+
+    # Create heatmap
+    fig = px.imshow(
+        cm,
+        x=class_labels,
+        y=class_labels,
+        color_continuous_scale="Blues",
+        text_auto=".2f" if normalize else True,
+        labels=dict(x="Predicted", y="True", color="Count" if not normalize else "Proportion"),
+        title="Confusion Matrix: Original vs Embedding Predictions"
+    )
+
+    fig.update_layout(
+        xaxis_title="Embedding Class",
+        yaxis_title="Original Image Class",
+        template="plotly_white"
+    )
+
+    return fig
+
+def norm_vs_pixel_diff(filtered):
+    # Step 1: Sort so diffs are meaningful
+    df = filtered.sort_values(
+        ["algorithm", "dataset", "input_name", "delta_multiplier", "patch_option", "iteration", "repetition"]
+    )
+
+    # Step 2: Compute difference with a lag of 3
+    df["patch_diff"] = df["modified_image"].diff(periods=3).apply(
+                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+            )
+    df = df.dropna()
+    fig = px.scatter(df, x="input_embedding_norm", y="patch_diff", color="algorithm", hover_data=["input_embedding_norm", "patch_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig.update_layout(
+        title="Embedding norm vs Pixel diff",
+        xaxis_title="Input Embedding norm",
+        yaxis_title="Pixel difference",
+        template="plotly_white"
+    )
+    return fig
+
+def norm_vs_proba_diff(filtered):
+    # Step 1: Sort so diffs are meaningful
+    df = filtered.sort_values(
+        ["algorithm", "dataset", "input_name", "delta_multiplier", "patch_option", "iteration", "repetition"]
+    )
+
+    # Step 2: Compute difference with a lag of 3
+    df["proba_diff"] = df["embedding_pred_proba"].diff(periods=3).apply(
+                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+            )
+    df = df.dropna()
+    fig = px.scatter(df, x="input_embedding_norm", y="proba_diff", color="algorithm", hover_data=["input_embedding_norm", "proba_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig.update_layout(
+        title="Embedding norm vs Embedding probabilities diff",
+        xaxis_title="Input Embedding norm",
+        yaxis_title="Probabilities difference",
+        template="plotly_white"
+    )
+    return fig
+
+
+def max_vs_pixel_diff(filtered):
+    # Step 1: Sort so diffs are meaningful
+    df = filtered.sort_values(
+        ["algorithm", "dataset", "input_name", "delta_multiplier", "patch_option", "iteration", "repetition"]
+    )
+
+    # Step 2: Compute difference with a lag of 3
+    df["patch_diff"] = df["modified_image"].diff(periods=3).apply(
+                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+            )
+    df = df.dropna()
+    fig = px.scatter(df, x="input_embedding_max", y="patch_diff", color="algorithm", hover_data=["input_embedding_max", "patch_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig.update_layout(
+        title="Embedding max vs Pixel diff",
+        xaxis_title="Input Embedding max",
+        yaxis_title="Pixel difference",
+        template="plotly_white"
+    )
+    return fig
+
+def max_vs_proba_diff(filtered):
+    # Step 1: Sort so diffs are meaningful
+    df = filtered.sort_values(
+        ["algorithm", "dataset", "input_name", "delta_multiplier", "patch_option", "iteration", "repetition"]
+    )
+
+    # Step 2: Compute difference with a lag of 3
+    df["proba_diff"] = df["embedding_pred_proba"].diff(periods=3).apply(
+                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+            )
+    df = df.dropna()
+    fig = px.scatter(df, x="input_embedding_max", y="proba_diff", color="algorithm", hover_data=["input_embedding_max", "proba_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig.update_layout(
+        title="Embedding max vs Embedding probabilities diff",
+        xaxis_title="Input Embedding max",
+        yaxis_title="Probabilities difference",
+        template="plotly_white"
+    )
+    return fig

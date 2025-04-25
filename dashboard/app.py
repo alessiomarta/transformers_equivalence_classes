@@ -6,19 +6,10 @@ import numpy as np
 from scipy.special import softmax
 import plotly.graph_objects as go
 from dash import dcc, html, Input, Output
-from figures import (
-    plot_embedding_init_pred_proba,
-    plot_embedding_top_pred_proba,
-    plot_prediction_difference,
-    plot_first_change_iteration,
-    delta_over_iterations,
-    delta_vs_pixel_diff,
-    plot_embedding_all_class_prob,
-    plot_conf_matrix_orig_embed,
-)
+from figures import *
 
 # ------------- Constants & Config ---------------------
-RES_DIR = "../res_temp"
+RES_DIR = "../res"
 PATCH_MAP = {"one": 1, "q1": 2, "q2": 3, "q3": 4, "all": 5}
 INVERSE_PATCH_MAP = {v: k for k, v in PATCH_MAP.items()}
 COLOR_MAP = {"simec": "rgb(229, 134, 6)", "simexp": "rgb(47, 138, 196)"}
@@ -65,11 +56,11 @@ def aggregate_data(df):
                 stacked = stacked[mask_valid]
                 return np.nanmean(stacked, axis=0)
             except ValueError as e:
-                print(f"Shape mismatch in cell: {c}")
+                print("Shape mismatch in cell")
                 for i, arr in enumerate(cell):
                     print(f"  Item {i} shape: {arr.shape}")
                 raise e
-        return None
+        return None 
 
     grouped = df.groupby(["dataset", "iteration", "repetition", "patch_option", "delta_multiplier", "algorithm"]).agg(list)
     grouped.drop("input_name", axis=1, inplace=True)
@@ -100,13 +91,13 @@ def create_layout(input_names, delta_mults):
         *[dcc.Graph(id=fig_id, style={"width": "50%", "float": "left"}) for fig_id in [
             "lineplot-embedding", "lineplot-delta", "boxplot-difference", "confusion-matrix",
             "lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp",
-            "conf-matrix-original-modified"
+            "conf-matrix-original-modified", "conf-matrix-original-embedding","scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
         ]]
     ])
 
 # ------------- App & Callbacks ------------------------
 app = dash.Dash(__name__)
-df = load_data("all_test_experiments")
+df = load_data("all_experiments")
 df = aggregate_data(df)
 
 INPUT_NAMES = df["input_name"].unique().tolist()
@@ -119,7 +110,7 @@ app.layout = create_layout(INPUT_NAMES, DELTA_MULTS)
     [Output(fig, "figure") for fig in [
         "lineplot-embedding", "lineplot-delta", "boxplot-difference", "confusion-matrix",
         "lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp",
-        "conf-matrix-original-modified"
+        "conf-matrix-original-modified","conf-matrix-original-embedding", "scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
     ]],
     [Input("input-name", "value"), Input("delta-mult", "value"), Input("explore-patches", "value")]
 )
@@ -138,7 +129,7 @@ def update_all_plots(input_name, delta_mult, explore_patches_len):
             font=dict(size=20, family="Arial", color="black")
         )
         fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), plot_bgcolor="white")
-        return [fig] * 9
+        return [fig] * 14
     
     return generate_all_figures(filtered, input_name)
 
@@ -152,9 +143,14 @@ def generate_all_figures(filtered_df, input_name):
     fig6 = delta_vs_pixel_diff(filtered_df)
     fig7 = plot_embedding_all_class_prob(filtered_df, "simec")
     fig8 = plot_embedding_all_class_prob(filtered_df, "simexp")
-    fig9 = plot_conf_matrix_orig_embed(filtered_df, N_CLASSES, input_name)
+    fig9 = plot_conf_matrix_orig_modified(filtered_df, N_CLASSES, input_name)
+    fig9a = plot_conf_matrix_orig_embed(filtered_df, N_CLASSES, input_name)
+    fig10 = norm_vs_pixel_diff(filtered_df)
+    fig11 = norm_vs_proba_diff(filtered_df)
+    fig12 = max_vs_pixel_diff(filtered_df)
+    fig13 = max_vs_proba_diff(filtered_df)
 
-    return [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8, fig9]
+    return [fig1, fig2, fig3, fig4, fig5, fig6, fig7, fig8, fig9, fig9a, fig10, fig11, fig12, fig13]
 
 # ------------- Run the App ---------------------------
 
