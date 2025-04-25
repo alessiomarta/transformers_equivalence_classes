@@ -173,6 +173,9 @@ experiments/experiments_data/
 # Result directory
 res/
 res_temp/
+old_res/
+
+experiments/old_experiments_data
 
 #Model
 *.mdl
