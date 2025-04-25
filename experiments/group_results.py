@@ -145,10 +145,10 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset not in ["mnist", "cifar"]:
+        if dataset not in ["mnist"]:
             continue  # TODO remove when everything is ready
         
-        if p["delta_mult"] not in [0.1, 1.0]:
+        if p["delta_mult"] not in [0.1, 10.0]:
             continue
         
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
@@ -165,13 +165,13 @@ if __name__ == "__main__":
                     exp_file = []
                     for f in result_files:
                         if (
-                            img.split(".")[0] in f
-                            and str(p["delta_mult"]).replace(".", "p") in f
-                            and dataset in f
-                            and p["patches"] in f
-                            and algorithm in f
+                            f"-{img.split('.')[0]}-" in f
+                            and f"-{str(p['delta_mult']).replace('.', 'p')}-" in f
+                            and f"{dataset}-" in f
+                            and f"-{p['patches']}-" in f
+                            and f"{algorithm}-" in f
                             and f.split("-")[-1] == str(repetition)
-                            #and "test" not in f
+                            and "test" not in f
                             and f"-{p['inputs']}-" in f
                         ):
                             exp_file.append(f)
@@ -194,6 +194,8 @@ if __name__ == "__main__":
                                     if p.split("-")[0] == str(iteration)
                                 )
                             )
+                            if interpretation_pickle["modified_patches"].dim()>1:
+                                interpretation_pickle["modified_patches"] = interpretation_pickle["modified_patches"].flatten() #this should be fixed with later intepretation results
                             results.append(
                                 tuple(
                                     [
