@@ -116,7 +116,7 @@ def interpret(
         # Option 1: fill with NaNs (better for later checks / visualizations)
         modified_patch_tensor = torch.full(patch_shape, float('nan')).to(original_image.device)
         # Optionally log it to json_stats if needed
-        json_stats["modified_patches"] = modified_patch_tensor.cpu()
+        json_stats["modified_patches"] = modified_patch_tensor.flatten().cpu()
     else:
         # -- Decode modified image and apply selected patches --
         eq_class_patch_ids = [p for p in eq_class_patch_ids if 1 <= p <= num_total_patches]
