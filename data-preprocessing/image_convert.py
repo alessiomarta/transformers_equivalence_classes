@@ -144,6 +144,7 @@ if __name__ == "__main__":
                     "attrib": sorted_scores[:n].tolist(),
                     "img_dim": list(image.shape),
                     "patch_dim": model.patcher.patch_size,
+                    "label":label,
                 }
             if configs["all"][fname] == {}:
                 print(f"Warning: No config found for {fname}")
