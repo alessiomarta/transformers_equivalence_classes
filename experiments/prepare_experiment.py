@@ -354,6 +354,8 @@ def generate_experiment_combinations(
         exp["delta_mult"] = delta
 
         # Iterate over patch options
+        if isinstance(patch_options, str):
+            patch_options = [patch_options]
         for patch_opt in patch_options:
             exp["patches"] = patch_opt
 
