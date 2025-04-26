@@ -150,9 +150,6 @@ if __name__ == "__main__":
         if dataset not in ["mnist"]:
             continue  # TODO remove when everything is ready
         
-        if p["delta_mult"] not in [0.1, 10.0]:
-            continue
-        
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
         for img, img_c in tqdm(
             c.items(),
