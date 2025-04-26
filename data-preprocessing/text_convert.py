@@ -179,6 +179,7 @@ if __name__ == "__main__":
                         "tokens": [
                             sentence_tokens[j] for j in sorted_idx[:n].tolist()
                         ],
+                        "label":label,
                     }
 
                 del expl
