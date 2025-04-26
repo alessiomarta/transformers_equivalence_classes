@@ -174,8 +174,10 @@ experiments/experiments_data/
 res/
 res_temp/
 old_res/
+res_alt/
 
 experiments/old_experiments_data
+experiments/experiments_data_alt
 
 #Model
 *.mdl
