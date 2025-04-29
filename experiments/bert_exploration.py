@@ -127,16 +127,25 @@ def main():
         params["model_path"], mask_or_cls=params["objective"], device=device
     )
     deactivate_dropout_layers(model)
-    model = model.to(device)    
+    model = model.to(device) 
+    
+    #quando l'obiettivo è mlm, bisogna mettere la maschera al posto del token da tenere costante (objective)
+    if params["objective"] in ["mlm", "msk", "mask"]:
+        for i, (t, n) in enumerate(zip(txts, names)):
+            t = tokenizer.tokenize(t)
+            obj = config[n]["objective"]
+            t[obj] = tokenizer.mask_token
+            txts[i] = " ".join(t).replace(" ##", "")
 
     # Tokenizing and embedding layers
     input_tokens = tokenizer(
         txts,
         return_tensors="pt",
         return_attention_mask=False,
-        add_special_tokens=False,
+        add_special_tokens=False if params["objective"] in ["mlm", "msk", "mask"] else True, # nelle frasi hatespeech non ci sono [cls] e [sep]
         padding = True
-    ).to(device)
+    ).to(device) 
+    
     token_embeddings = model.bert.embeddings(**input_tokens).cpu()
     token_embeddings = torch.utils.data.TensorDataset(token_embeddings)
     sent_loader = torch.utils.data.DataLoader(

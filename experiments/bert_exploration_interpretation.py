@@ -94,22 +94,24 @@ def interpret(
     interpretation_path = os.path.join(path, "interpretation")
     os.makedirs(interpretation_path, exist_ok=True)
 
-    # Mask the objective token
+    original_sent_ids = deepcopy(encoded_sent.ids)
+    # Mask the objective token - already did it in loading sentences
+    '''
     mask_id = tokenizer.convert_tokens_to_ids("[MASK]")
     cls_id = tokenizer.convert_tokens_to_ids("[CLS]")
-    original_sent_ids = deepcopy(encoded_sent.ids)
     original_sent_ids[keep_constant_id] = mask_id if mask_or_cls.lower() in ['mask','msk','mlm'] else cls_id
-
+    '''
+    
     # Prepare the input embedding
     input_embedding = input_embedding.to(device, dtype = model.dtype)
-    
     original_sentence = " ".join([tok for m,tok in zip(encoded_sent.special_tokens_mask, tokenizer.convert_ids_to_tokens(original_sent_ids)) if not m])
+    
     original_proba = model(
         input_ids = torch.tensor(original_sent_ids).unsqueeze(0).to(device),
         attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device)
     ).logits.squeeze()
     # original_proba.shape = (n_iterations, max_len, vocab_size) OR (n_iterations, output_size)
-
+    #TODO come mai continua a  uscire una predizione strana per modified_image_pred? continua a  debuggare
     model.eval()
     with torch.no_grad():
         mlm_preds = decoder(model.bert.encoder(input_embedding).last_hidden_state)
@@ -124,17 +126,17 @@ def interpret(
             json_stats = {
                 "original_sentence": original_sentence,
                 "original_image_pred_proba": original_proba[keep_constant_id, original_proba_top_k_ids].to("cpu"),
-                "original_image_pred_proba_tokens": list(zip(original_proba_top_k_ids, tokenizer.convert_ids_to_tokens(original_proba_top_k_ids))),
-                "original_image_pred": original_proba_top_k_ids[0],
-                "modified_patches": eq_class
+                "original_image_pred_proba_tokens": original_proba_top_k_ids,
+                "original_image_pred": original_proba_top_k_ids[0]
             }
             
             # Decoding and re-encoding
-            maxima[:,keep_constant_id] = mask_id
+            maxima[:,keep_constant_id] = tokenizer.mask_token_id
             decoded_texts = [
-                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"])
+                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")#il padding non lo vogliamo, ma il mask sì
             for row in maxima]
-            re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt")
+            
+            re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt", add_special_tokens=False)
             new_logits = model(**re_encoded_input.to(device)).logits
             # new_logits.shape = n_iterations, max_len, vocab_size
 
@@ -144,6 +146,7 @@ def interpret(
                 json_stats['embedding_pred'] = original_proba_top_k_ids[torch.argmax(mlm_preds[i,keep_constant_id,original_proba_top_k_ids]).to("cpu").item()]
 
                 json_stats["modified_sentence"] = decoded_texts[i]
+                json_stats['modified_patches'] = mlm_preds[i,eq_class[i][0]].argmax(dim=-1).to("cpu").tolist()
 
                 json_stats['modified_image_pred_proba'] = new_logits[i,keep_constant_id,original_proba_top_k_ids].to("cpu")
 
@@ -152,7 +155,7 @@ def interpret(
                 json_stats['modified_original_pred_proba'] = new_logits[i,keep_constant_id,original_proba_top_k_ids[0]].to("cpu").item()
 
                 save_object(json_stats, os.path.join(interpretation_path, f"{t}-stats.pkl"))
-                with open(os.path.join(interpretation_path, f"{t}-{json_stats['original_image_pred']}-{json_stats['modified_image_pred']}.txt"), "w", encoding="utf-8") as f:
+                with open(os.path.join(interpretation_path, f"{t}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.txt"), "w", encoding="utf-8") as f:
                     f.write(json_stats['modified_sentence'])
 
         # Classification
@@ -162,8 +165,7 @@ def interpret(
             json_stats = {
                 "original_sentence": original_sentence,
                 "original_image_pred_proba": original_proba.to("cpu"),
-                "original_image_pred": torch.argmax(original_proba).to("cpu"),
-                "modified_patches": eq_class
+                "original_image_pred": torch.argmax(original_proba).to("cpu")
             }
 
             # Predictions
@@ -176,9 +178,10 @@ def interpret(
 
             # Decoding and re-encoding
             decoded_texts = [
-                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"])
+                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")
             for row in maxima]
-            re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt")
+            
+            re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt", add_special_tokens=False)
             new_logits = model(**re_encoded_input.to(device)).logits
             # new_logits.shape = n_iterations, output_size
 
@@ -188,6 +191,7 @@ def interpret(
                 json_stats['embedding_pred'] = torch.argmax(cls_preds[i]).to("cpu").item()
 
                 json_stats["modified_sentence"] = decoded_texts[i]
+                json_stats['modified_patches'] = mlm_preds[i,eq_class[i][0]].argmax(dim=-1).to("cpu").tolist()
 
                 json_stats['modified_image_pred_proba'] = new_logits[i].to("cpu")
 
@@ -196,7 +200,7 @@ def interpret(
                 json_stats['modified_original_pred_proba'] = new_logits[i,json_stats['original_image_pred']].to("cpu").item()
 
                 save_object(json_stats, os.path.join(interpretation_path, f"{t}-stats.pkl"))
-                with open(os.path.join(interpretation_path, f"{t}-{json_stats['original_image_pred']}-{json_stats['modified_image_pred']}.txt"), "w", encoding="utf-8") as f:
+                with open(os.path.join(interpretation_path, f"{t}-{json_stats['original_image_pred']}-{json_stats['embedding_pred']}-{json_stats['modified_image_pred']}.txt"), "w", encoding="utf-8") as f:
                     f.write(json_stats['modified_sentence'])
 
 
@@ -237,22 +241,28 @@ def main():
     device = torch.device(args.device)
 
     txts, names = load_raw_sents(args.experiment_path)
-    eq_class_words = load_json(os.path.join(args.experiment_path, "config.json"))
     class_map = None
     if params['objective'] == "cls":
-        class_map = {int(k): v for k, v in eq_class_words["class-map"].items()}
+        class_map = {0: "polite", 1:"neutral", 2:"hatespeech"} # non vedo class-map in questo json, faccio forzato
     logging.set_verbosity_error()
     bert_tokenizer, bert_model = load_bert_model(
         params['model_path'], mask_or_cls=params['objective'], device=device
     )
     deactivate_dropout_layers(bert_model)
     bert_model = bert_model.to(device)
+    
+    if params["objective"] in ["mlm", "msk", "mask"]:
+        for i, (t, n) in enumerate(zip(txts, names)):
+            t = bert_tokenizer.tokenize(t)
+            obj = config[n]["objective"]
+            t[obj] = bert_tokenizer.mask_token
+            txts[i] = " ".join(t).replace(" ##", "") 
 
     tokenized_texts = bert_tokenizer(
         txts,
         return_tensors="pt",
         return_attention_mask=False,
-        add_special_tokens=False,
+        add_special_tokens=False if params["objective"] in ["mlm", "msk", "mask"] else True,# nelle frasi hatespeech non ci sono [cls] e [sep]
         padding=True,
     )
 
