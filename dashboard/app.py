@@ -6,11 +6,12 @@ import numpy as np
 from scipy.special import softmax
 import plotly.graph_objects as go
 from dash import dcc, html, Input, Output
+from transformers import BertTokenizerFast
 from figures import *
 
 # ------------- Constants & Config ---------------------
 RES_DIR = "../res"
-PATCH_MAP = {"one": 1, "q1": 2, "q2": 3, "q3": 4, "all": 5}
+PATCH_MAP = {"one": 1, "q1": 2, "q2": 3, "q3": 4, "all": 5, "target-word":6}
 INVERSE_PATCH_MAP = {v: k for k, v in PATCH_MAP.items()}
 COLOR_MAP = {"simec": "rgb(229, 134, 6)", "simexp": "rgb(47, 138, 196)"}
 FILL_COLOR_MAP = {"simec": "rgba(229, 134, 6, 0.2)", "simexp": "rgba(47, 138, 196, 0.2)"}
@@ -27,14 +28,21 @@ def load_data(out_name):
     df["input_name"] = df["input_name"].astype(str)
 
     for col in df.columns:
-        if "proba" in col:
+        if "proba" in col and "tokens_ids" not in col and "tokens_txt" not in col:
             df[col] = df[col].apply(lambda x: softmax(np.stack(x).flatten()))
         elif "pred" in col:
             df[col] = df[col].astype(str)
-
+    
+    def extract_proba(row):
+        if row["original_image_pred_proba_tokens_ids"] is None:
+            return row["embedding_pred_proba"][int(row["original_image_pred"])]
+        else:
+            idx = np.where(row["original_image_pred_proba_tokens_ids"] == row["original_image_pred"])
+            return row["embedding_pred_proba"][idx]
     df["embedding_pred_init_proba"] = df.apply(
         lambda row: row["embedding_pred_proba"][int(row["original_image_pred"])], axis=1
     )
+
     df["patch_option"] = df["patch_option"].apply(lambda x: PATCH_MAP[x])
     df.sort_values("iteration", inplace=True)
 
@@ -43,6 +51,8 @@ def load_data(out_name):
 # ------------- Aggregation ---------------------------
 def aggregate_data(df):
     def aggregate_cell(cell):
+        if cell[0] is None:
+            return cell
         if isinstance(cell[0], (float, int)):
             return np.mean(cell)
         if isinstance(cell[0], str):
@@ -97,12 +107,13 @@ def create_layout(input_names, delta_mults):
 
 # ------------- App & Callbacks ------------------------
 app = dash.Dash(__name__)
-df = load_data("all_experiments")
+df = load_data("temp")
 df = aggregate_data(df)
 
 INPUT_NAMES = df["input_name"].unique().tolist()
 DELTA_MULTS = df["delta_multiplier"].unique().tolist()
 N_CLASSES = df["original_image_pred_proba"].apply(len).unique()[0]
+CLASS_LABELS = {"cifar":["plane", "car", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"], "mnist":list(map(str, range(10))), "winobias":list(BertTokenizerFast.from_pretrained("gaunernst/bert-small-uncased").get_vocab().keys()), "hatespeech": list(BertTokenizerFast.from_pretrained("ctoraman/hate-speech-bert").get_vocab().keys())}
 
 app.layout = create_layout(INPUT_NAMES, DELTA_MULTS)
 
@@ -135,16 +146,17 @@ def update_all_plots(input_name, delta_mult, explore_patches_len):
 
 # ------------- Plotting Utilities -------------------
 def generate_all_figures(filtered_df, input_name):
+    class_labels = CLASS_LABELS[filtered_df["dataset"].values[0]]
     fig1 = plot_embedding_init_pred_proba(filtered_df)
     fig2 = plot_embedding_top_pred_proba(filtered_df)
     fig3 = plot_prediction_difference(filtered_df)
     fig4 = plot_first_change_iteration(filtered_df)
     fig5 = delta_over_iterations(filtered_df)
     fig6 = delta_vs_pixel_diff(filtered_df)
-    fig7 = plot_embedding_all_class_prob(filtered_df, "simec")
-    fig8 = plot_embedding_all_class_prob(filtered_df, "simexp")
-    fig9 = plot_conf_matrix_orig_modified(filtered_df, N_CLASSES, input_name)
-    fig9a = plot_conf_matrix_orig_embed(filtered_df, N_CLASSES, input_name)
+    fig7 = plot_embedding_all_class_prob(filtered_df, "simec", class_labels)
+    fig8 = plot_embedding_all_class_prob(filtered_df, "simexp", class_labels)
+    fig9 = plot_conf_matrix_orig_modified(filtered_df, class_labels, input_name)
+    fig9a = plot_conf_matrix_orig_embed(filtered_df, class_labels, input_name)
     fig10 = norm_vs_pixel_diff(filtered_df)
     fig11 = norm_vs_proba_diff(filtered_df)
     fig12 = max_vs_pixel_diff(filtered_df)

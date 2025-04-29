@@ -179,7 +179,8 @@ def plot_first_change_iteration(filtered):
         except TypeError:
             df_temp = df[df[colname]].copy()
             df_temp["element_id"] = df_temp["element_id"].apply(lambda x: x[0])
-            mismatches = df_temp.groupby(["algorithm", "repetition", "element_id"]).first().reset_index() 
+            mismatches = df_temp.groupby(["algorithm", "repetition", "element_id"]).first().reset_index()
+            mismatches["Prediction Type"] = label
         return mismatches
 
     embedding_mismatches = get_mismatches(exploded_df, "embedding_class_mismatch", "Embedding")
@@ -340,7 +341,7 @@ def delta_vs_pixel_diff(filtered):
     )
     return fig
 
-def plot_embedding_all_class_prob(filtered, algo):
+def plot_embedding_all_class_prob(filtered, algo, class_labels):
     algo_df = filtered.loc[
         filtered["algorithm"] == algo,
         ["iteration", "repetition", "embedding_pred_proba"]
@@ -364,13 +365,15 @@ def plot_embedding_all_class_prob(filtered, algo):
         var_name="class",
         value_name="probability"
     )
+    
+    melted["class_label"] = melted["class"].astype(int).map(lambda x: class_labels[int(x)])
 
     # Create line plot
     fig = px.line(
         melted,
         x="iteration",
         y="probability",
-        color="class",
+        color="class_label",
         title=f"Avg Probabilities of All Classes over Iterations ({algo.upper()})"
     )
     
@@ -382,10 +385,12 @@ def plot_embedding_all_class_prob(filtered, algo):
 
     return fig
 
-def plot_conf_matrix_orig_modified(filtered, n_classes, input_name=None, normalize=False):
-    # Prepare label list
-    class_labels = list(map(str, range(n_classes)))
-
+def plot_conf_matrix_orig_modified(filtered, class_labels, input_name=None, normalize=False):
+    
+    if filtered["dataset"].values[0] in ["mnist", "cifar"]:
+        class_labels_numeric = list(map(str, range(len(class_labels))))
+    else:
+        class_labels_numeric = filtered["original_image_pred_proba_tokens_ids"].values[0]
     # Extract true and predicted labels depending on input_name
     if input_name and input_name.startswith("agg_"):
         y_true = filtered["original_image_pred"].explode()
@@ -399,7 +404,7 @@ def plot_conf_matrix_orig_modified(filtered, n_classes, input_name=None, normali
     y_pred = y_pred.astype(str)
 
     # Compute confusion matrix
-    cm = confusion_matrix(y_true, y_pred, labels=class_labels)
+    cm = confusion_matrix(y_true, y_pred, labels=class_labels_numeric)
 
     if normalize:
         cm = cm.astype("float") / cm.sum(axis=1, keepdims=True)
@@ -424,10 +429,11 @@ def plot_conf_matrix_orig_modified(filtered, n_classes, input_name=None, normali
 
     return fig
 
-def plot_conf_matrix_orig_embed(filtered, n_classes, input_name=None, normalize=False):
-    # Prepare label list
-    class_labels = list(map(str, range(n_classes)))
-
+def plot_conf_matrix_orig_embed(filtered, class_labels, input_name=None, normalize=False):
+    if filtered["dataset"].values[0] in ["mnist", "cifar"]:
+        class_labels_numeric = list(map(str, range(len(class_labels))))
+    else:
+        class_labels_numeric = filtered["original_image_pred_proba_tokens_ids"].values[0]
     # Extract true and predicted labels depending on input_name
     if input_name and input_name.startswith("agg_"):
         y_true = filtered["original_image_pred"].explode()
@@ -441,7 +447,7 @@ def plot_conf_matrix_orig_embed(filtered, n_classes, input_name=None, normalize=
     y_pred = y_pred.astype(str)
 
     # Compute confusion matrix
-    cm = confusion_matrix(y_true, y_pred, labels=class_labels)
+    cm = confusion_matrix(y_true, y_pred, labels=class_labels_numeric)
 
     if normalize:
         cm = cm.astype("float") / cm.sum(axis=1, keepdims=True)
@@ -477,7 +483,7 @@ def norm_vs_pixel_diff(filtered):
                 lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
     df = df.dropna()
-    fig = px.scatter(df, x="input_embedding_norm", y="patch_diff", color="algorithm", hover_data=["input_embedding_norm", "patch_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig = px.scatter(df, x="input_embedding_norm", y="patch_diff", color="algorithm", hover_data=["input_embedding_norm", "patch_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding norm vs Pixel diff",
         xaxis_title="Input Embedding norm",
@@ -497,7 +503,7 @@ def norm_vs_proba_diff(filtered):
                 lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
     df = df.dropna()
-    fig = px.scatter(df, x="input_embedding_norm", y="proba_diff", color="algorithm", hover_data=["input_embedding_norm", "proba_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig = px.scatter(df, x="input_embedding_norm", y="proba_diff", color="algorithm", hover_data=["input_embedding_norm", "proba_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding norm vs Embedding probabilities diff",
         xaxis_title="Input Embedding norm",
@@ -518,7 +524,7 @@ def max_vs_pixel_diff(filtered):
                 lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
     df = df.dropna()
-    fig = px.scatter(df, x="input_embedding_max", y="patch_diff", color="algorithm", hover_data=["input_embedding_max", "patch_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig = px.scatter(df, x="input_embedding_max", y="patch_diff", color="algorithm", hover_data=["input_embedding_max", "patch_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding max vs Pixel diff",
         xaxis_title="Input Embedding max",
@@ -538,7 +544,7 @@ def max_vs_proba_diff(filtered):
                 lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
     df = df.dropna()
-    fig = px.scatter(df, x="input_embedding_max", y="proba_diff", color="algorithm", hover_data=["input_embedding_max", "proba_diff", "algorithm"], color_discrete_map=COLOR_MAP,)
+    fig = px.scatter(df, x="input_embedding_max", y="proba_diff", color="algorithm", hover_data=["input_embedding_max", "proba_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding max vs Embedding probabilities diff",
         xaxis_title="Input Embedding max",
