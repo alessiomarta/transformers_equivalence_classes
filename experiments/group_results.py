@@ -1,4 +1,5 @@
 import argparse
+import errno
 import os
 import re
 import json
@@ -77,9 +78,11 @@ def get_latest_experiment(base_dir, experiment_prefix):
 
     # Sort directories by timestamp
     matching_dirs.sort(key=extract_timestamp, reverse=True)
+    latest_exp_dir = os.path.join(base_dir, matching_dirs[0])
+    if latest_exp_dir is None:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), f"Not found matching result dir for experiment: {experiment_prefix}")
 
-    # Return the most recent one
-    return os.path.join(base_dir, matching_dirs[0])
+    return latest_exp_dir
 
 
 def extract_result_info(file):
@@ -147,9 +150,14 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset not in ["mnist"]:
+        if dataset not in ["mnist", "cifar", "winobias"]:
             continue  # TODO remove when everything is ready
-        
+        if dataset == "cifar" and  p["delta_mult"] != 10.0:
+            continue
+        if dataset == "cifar" and p["patches"] != "all":
+            continue
+        if dataset == "winobias" and p["delta_mult"] not in [0.1, 10.0]:
+            continue
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
         for img, img_c in tqdm(
             c.items(),
@@ -172,6 +180,7 @@ if __name__ == "__main__":
                             and f.split("-")[-1] == str(repetition)
                             and "test" not in f
                             and f"-{p['inputs']}-" in f
+                            and "-20250428-072607" not in f
                         ):
                             exp_file.append(f)
                     for f in exp_file:
@@ -195,8 +204,16 @@ if __name__ == "__main__":
                                     if p.split("-")[0] == str(iteration)
                                 )
                             )
-                            if interpretation_pickle["modified_patches"].dim()>1:
-                                interpretation_pickle["modified_patches"] = interpretation_pickle["modified_patches"].flatten() #this should be fixed with later intepretation results
+                            mod_pos, mod_txt, proba_tokens_ids, proba_tokens_txt = None, None, None, None
+                            if not isinstance(interpretation_pickle["modified_patches"], list):
+                                if interpretation_pickle["modified_patches"].dim()>1:
+                                    interpretation_pickle["modified_patches"] = interpretation_pickle["modified_patches"].flatten() #this should be fixed with later intepretation results
+                            else:
+                                mod_pos = [el[0] for el in interpretation_pickle["modified_patches"]]
+                                mod_sentence = interpretation_pickle["modified_sentence"].split(" ")
+                                mod_txt = [mod_sentence[el] for el in mod_pos]
+                                proba_tokens_ids = array([el[0] for el in interpretation_pickle["original_image_pred_proba_tokens"]]).squeeze()
+                                proba_tokens_txt = array([el[1] for el in interpretation_pickle["original_image_pred_proba_tokens"]]).squeeze()
                             results.append(
                                 tuple(
                                     [
@@ -207,10 +224,10 @@ if __name__ == "__main__":
                                         img_c["explore"],  # explored patches
                                         img_c[
                                             "attrib"
-                                        ],  # attribution of explored patches
+                                        ] if p["patches"] != "target-word" else None,  # attribution of explored patches
                                         len(
                                             img_c["attrib"]
-                                        ),  # number of explored patches
+                                        ) if p["patches"] != "target-word" else 1,  # number of explored patches
                                         p[
                                             "save_each"
                                         ],  # results are saved at each save_each iterations
@@ -251,7 +268,11 @@ if __name__ == "__main__":
                                         .detach()
                                         .cpu()
                                         .squeeze(0)
-                                        .numpy(),
+                                        .numpy() if not isinstance(interpretation_pickle["modified_patches"], list) else None,
+                                        mod_pos,
+                                        mod_txt,
+                                        proba_tokens_ids,
+                                        proba_tokens_txt
                                     ]
                                 )
                             )
@@ -283,6 +304,10 @@ if __name__ == "__main__":
             "modified_image_pred",
             "modified_image_pred_proba",
             "modified_image",
+            "modified_tokens_pos", 
+            "modified_tokens",
+            "original_image_pred_proba_tokens_ids",
+            "original_image_pred_proba_tokens_txt",
         ],
     )
 
