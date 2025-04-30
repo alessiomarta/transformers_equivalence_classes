@@ -372,9 +372,12 @@ def explore(
 
             if delta.dim() < selected_eigenvecs.dim():
                 delta = torch.unsqueeze(delta, dim = -1)
+                
 
             for j,L in enumerate(eq_class_emb_ids):
-                input_emb[j, L, :] = input_emb[j, L, :] + delta[j]*selected_eigenvecs[j, :len(L)]
+                if delta[j, :len(L)].shape[0] != selected_eigenvecs[j, :len(L)].shape[0]:
+                    print()
+                input_emb[j, L, :] = input_emb[j, L, :] + delta[j, :len(L)]*selected_eigenvecs[j, :len(L)]
 
             distance = selected_eigenvals * delta.squeeze(-1)
             # cap embedding, if specified
