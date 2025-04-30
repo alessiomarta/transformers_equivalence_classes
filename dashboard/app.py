@@ -21,27 +21,25 @@ def load_data(out_name):
     df = pd.read_parquet(os.path.join(RES_DIR, f"{out_name}_results.parquet"))
     npz_data = np.load(os.path.join(RES_DIR, f"{out_name}_embeddings.npz"), allow_pickle=True)
 
-    for key in ["distance", "original_image_pred_proba", "embedding_pred_proba", "modified_image_pred_proba", "modified_image"]:
+    for key in ["distance", "original_image_pred_proba", "embedding_pred_proba", "modified_image_pred_proba", "modified_image", "evaluated_tokens"]:
         df[key] = list(npz_data[key])
 
     df.dropna(axis=1, inplace=True)
-    df["input_name"] = df["input_name"].astype(str)
+    df["input_name"] = df["input_name"].astype(str) + "_" + df["dataset"].astype(str)
 
     for col in df.columns:
-        if "proba" in col and "tokens_ids" not in col and "tokens_txt" not in col:
+        if "proba" in col:
             df[col] = df[col].apply(lambda x: softmax(np.stack(x).flatten()))
         elif "pred" in col:
             df[col] = df[col].astype(str)
     
     def extract_proba(row):
-        if row["original_image_pred_proba_tokens_ids"] is None:
+        if row["dataset"] in ["cifar", "mnist", 'hatespeech']:
             return row["embedding_pred_proba"][int(row["original_image_pred"])]
         else:
-            idx = np.where(row["original_image_pred_proba_tokens_ids"] == row["original_image_pred"])
+            idx = np.argmax(row["original_image_pred_proba"])
             return row["embedding_pred_proba"][idx]
-    df["embedding_pred_init_proba"] = df.apply(
-        lambda row: row["embedding_pred_proba"][int(row["original_image_pred"])], axis=1
-    )
+    df["embedding_pred_init_proba"] = df.apply(extract_proba, axis=1)
 
     df["patch_option"] = df["patch_option"].apply(lambda x: PATCH_MAP[x])
     df.sort_values("iteration", inplace=True)
@@ -70,6 +68,11 @@ def aggregate_data(df):
                 for i, arr in enumerate(cell):
                     print(f"  Item {i} shape: {arr.shape}")
                 raise e
+        if isinstance(cell[0], list):
+            unique = set({}) 
+            for c in cell:
+                unique = unique.union(set(c))
+            return unique 
         return None 
 
     grouped = df.groupby(["dataset", "iteration", "repetition", "patch_option", "delta_multiplier", "algorithm"]).agg(list)
@@ -95,8 +98,8 @@ def create_layout(input_names, delta_mults):
         ], style={"width": "50%", "float": "left"}),
         html.Label("Select Fraction of Explored Patches:"),
         dcc.Slider(
-            id="explore-patches", min=1, max=5, step=1, value=1,
-            marks={i: INVERSE_PATCH_MAP[i] for i in range(1, 6)}
+            id="explore-patches", min=1, max=6, step=1, value=1,
+            marks={i: INVERSE_PATCH_MAP[i] for i in range(1, 7)}
         ),
         *[dcc.Graph(id=fig_id, style={"width": "50%", "float": "left"}) for fig_id in [
             "lineplot-embedding", "lineplot-delta", "boxplot-difference", "confusion-matrix",
@@ -108,12 +111,12 @@ def create_layout(input_names, delta_mults):
 # ------------- App & Callbacks ------------------------
 app = dash.Dash(__name__)
 df = load_data("temp")
-df = aggregate_data(df)
+df = aggregate_data(df) 
 
 INPUT_NAMES = df["input_name"].unique().tolist()
 DELTA_MULTS = df["delta_multiplier"].unique().tolist()
 N_CLASSES = df["original_image_pred_proba"].apply(len).unique()[0]
-CLASS_LABELS = {"cifar":["plane", "car", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"], "mnist":list(map(str, range(10))), "winobias":list(BertTokenizerFast.from_pretrained("gaunernst/bert-small-uncased").get_vocab().keys()), "hatespeech": list(BertTokenizerFast.from_pretrained("ctoraman/hate-speech-bert").get_vocab().keys())}
+CLASS_LABELS = {"cifar":["plane", "car", "bird", "cat", "deer", "dog", "frog", "horse", "ship", "truck"], "mnist":list(map(str, range(10))), "winobias":BertTokenizerFast.from_pretrained("gaunernst/bert-small-uncased"), "hatespeech": ["positive", "neutral", "hatespeech"]}
 
 app.layout = create_layout(INPUT_NAMES, DELTA_MULTS)
 

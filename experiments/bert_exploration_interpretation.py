@@ -104,14 +104,13 @@ def interpret(
     
     # Prepare the input embedding
     input_embedding = input_embedding.to(device, dtype = model.dtype)
-    original_sentence = " ".join([tok for m,tok in zip(encoded_sent.special_tokens_mask, tokenizer.convert_ids_to_tokens(original_sent_ids)) if not m])
+    original_sentence = " ".join([tok for m,tok in zip(encoded_sent.special_tokens_mask, tokenizer.convert_ids_to_tokens(original_sent_ids)) if not m]).replace(" ##", "")
     
     original_proba = model(
         input_ids = torch.tensor(original_sent_ids).unsqueeze(0).to(device),
         attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device)
     ).logits.squeeze()
     # original_proba.shape = (n_iterations, max_len, vocab_size) OR (n_iterations, output_size)
-    #TODO come mai continua a  uscire una predizione strana per modified_image_pred? continua a  debuggare
     model.eval()
     with torch.no_grad():
         mlm_preds = decoder(model.bert.encoder(input_embedding).last_hidden_state)
@@ -130,12 +129,16 @@ def interpret(
                 "original_image_pred": original_proba_top_k_ids[0]
             }
             
+            full_txt = [
+                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")#il padding non lo vogliamo, ma il mask sì
+            for row in maxima]
+            
             # Decoding and re-encoding
             maxima[:,keep_constant_id] = tokenizer.mask_token_id
             decoded_texts = [
                 " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")#il padding non lo vogliamo, ma il mask sì
             for row in maxima]
-            
+                        
             re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt", add_special_tokens=False)
             new_logits = model(**re_encoded_input.to(device)).logits
             # new_logits.shape = n_iterations, max_len, vocab_size
@@ -145,8 +148,8 @@ def interpret(
                 json_stats['embedding_pred_proba'] = mlm_preds[i,keep_constant_id,original_proba_top_k_ids].to("cpu")
                 json_stats['embedding_pred'] = original_proba_top_k_ids[torch.argmax(mlm_preds[i,keep_constant_id,original_proba_top_k_ids]).to("cpu").item()]
 
-                json_stats["modified_sentence"] = decoded_texts[i]
-                json_stats['modified_patches'] = mlm_preds[i,eq_class[i][0]].argmax(dim=-1).to("cpu").tolist()
+                json_stats["modified_sentence"] = full_txt[i]
+                json_stats['modified_patches'] = mlm_preds[i,[el[0] for el in eq_class]].argmax(dim=-1).to("cpu").tolist()
 
                 json_stats['modified_image_pred_proba'] = new_logits[i,keep_constant_id,original_proba_top_k_ids].to("cpu")
 
@@ -191,7 +194,7 @@ def interpret(
                 json_stats['embedding_pred'] = torch.argmax(cls_preds[i]).to("cpu").item()
 
                 json_stats["modified_sentence"] = decoded_texts[i]
-                json_stats['modified_patches'] = mlm_preds[i,eq_class[i][0]].argmax(dim=-1).to("cpu").tolist()
+                json_stats['modified_patches'] = mlm_preds[i,[el[0] for el in eq_class]].argmax(dim=-1).to("cpu").tolist()
 
                 json_stats['modified_image_pred_proba'] = new_logits[i].to("cpu")
 

@@ -365,8 +365,10 @@ def plot_embedding_all_class_prob(filtered, algo, class_labels):
         var_name="class",
         value_name="probability"
     )
-    
-    melted["class_label"] = melted["class"].astype(int).map(lambda x: class_labels[int(x)])
+    try:
+        melted["class_label"] = melted["class"].astype(int).map(lambda x: class_labels[int(x)])
+    except TypeError:
+        melted["class_label"] = melted["class"].astype(int).map(lambda x: class_labels.convert_ids_to_tokens(x))
 
     # Create line plot
     fig = px.line(
@@ -390,14 +392,15 @@ def plot_conf_matrix_orig_modified(filtered, class_labels, input_name=None, norm
     if filtered["dataset"].values[0] in ["mnist", "cifar"]:
         class_labels_numeric = list(map(str, range(len(class_labels))))
     else:
-        class_labels_numeric = filtered["original_image_pred_proba_tokens_ids"].values[0]
+        class_labels_numeric = list(map(str, filtered["evaluated_tokens"].values[0]))
+        class_labels = [class_labels.convert_ids_to_tokens(t) for t in filtered["evaluated_tokens"].values[0]]
     # Extract true and predicted labels depending on input_name
     if input_name and input_name.startswith("agg_"):
         y_true = filtered["original_image_pred"].explode()
         y_pred = filtered["modified_image_pred"].explode()
     else:
         y_true = filtered["original_image_pred"]
-        y_pred = filtered["modified_image_pred"]
+        y_pred = filtered["modified_image_pred"] 
 
     # Convert to string for consistent labeling
     y_true = y_true.astype(str)
@@ -433,7 +436,8 @@ def plot_conf_matrix_orig_embed(filtered, class_labels, input_name=None, normali
     if filtered["dataset"].values[0] in ["mnist", "cifar"]:
         class_labels_numeric = list(map(str, range(len(class_labels))))
     else:
-        class_labels_numeric = filtered["original_image_pred_proba_tokens_ids"].values[0]
+        class_labels_numeric = list(map(str, filtered["evaluated_tokens"].values[0]))
+        class_labels = [class_labels.convert_ids_to_tokens(t) for t in filtered["evaluated_tokens"].values[0]]
     # Extract true and predicted labels depending on input_name
     if input_name and input_name.startswith("agg_"):
         y_true = filtered["original_image_pred"].explode()

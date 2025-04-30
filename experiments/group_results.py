@@ -152,13 +152,13 @@ if __name__ == "__main__":
         )
         if dataset not in ["mnist", "cifar", "winobias"]:
             continue  # TODO remove when everything is ready
-        if dataset == "cifar" and  p["delta_mult"] != 10.0:
+        if dataset == "cifar" and  p["delta_mult"] == 5.0:
             continue
-        if dataset == "cifar" and p["patches"] != "all":
-            continue
-        if dataset == "winobias" and p["delta_mult"] not in [0.1, 10.0]:
+        if exp_res_dir is None:
+            print(f"No result files found for {config_file}")
             continue
         result_files = collect_npz_res_files(exploration_result_dir=exp_res_dir)
+        not_ok = False
         for img, img_c in tqdm(
             c.items(),
             desc=f"Processing results in {os.path.basename(config_file)}",
@@ -180,7 +180,6 @@ if __name__ == "__main__":
                             and f.split("-")[-1] == str(repetition)
                             and "test" not in f
                             and f"-{p['inputs']}-" in f
-                            and "-20250428-072607" not in f
                         ):
                             exp_file.append(f)
                     for f in exp_file:
@@ -197,23 +196,23 @@ if __name__ == "__main__":
                             input_emb = result_info["input_embedding"][it]
                             input_emb_norm = norm(input_emb)
                             input_emb_max = npmax(input_emb)
-                            interpretation_pickle = load_pickle(
-                                next(
-                                    os.path.join(f, "interpretation", p)
-                                    for p in interpretation_pickles
-                                    if p.split("-")[0] == str(iteration)
+                            try:
+                                interpretation_pickle = load_pickle(
+                                    next(
+                                        os.path.join(f, "interpretation", p)
+                                        for p in interpretation_pickles
+                                        if p.split("-")[0] == str(iteration)
+                                    )
                                 )
-                            )
+                            except StopIteration:
+                                if not not_ok:
+                                    print(f"No interpretation files for {exp_res_dir}. Is everything ok with this exploration?")
+                                    not_ok = True
+                                continue
                             mod_pos, mod_txt, proba_tokens_ids, proba_tokens_txt = None, None, None, None
                             if not isinstance(interpretation_pickle["modified_patches"], list):
                                 if interpretation_pickle["modified_patches"].dim()>1:
                                     interpretation_pickle["modified_patches"] = interpretation_pickle["modified_patches"].flatten() #this should be fixed with later intepretation results
-                            else:
-                                mod_pos = [el[0] for el in interpretation_pickle["modified_patches"]]
-                                mod_sentence = interpretation_pickle["modified_sentence"].split(" ")
-                                mod_txt = [mod_sentence[el] for el in mod_pos]
-                                proba_tokens_ids = array([el[0] for el in interpretation_pickle["original_image_pred_proba_tokens"]]).squeeze()
-                                proba_tokens_txt = array([el[1] for el in interpretation_pickle["original_image_pred_proba_tokens"]]).squeeze()
                             results.append(
                                 tuple(
                                     [
@@ -268,11 +267,8 @@ if __name__ == "__main__":
                                         .detach()
                                         .cpu()
                                         .squeeze(0)
-                                        .numpy() if not isinstance(interpretation_pickle["modified_patches"], list) else None,
-                                        mod_pos,
-                                        mod_txt,
-                                        proba_tokens_ids,
-                                        proba_tokens_txt
+                                        .numpy() if not isinstance(interpretation_pickle["modified_patches"], list) else array(interpretation_pickle["modified_patches"]),
+                                        [0] if dataset != "winobias" else interpretation_pickle["original_image_pred_proba_tokens"]
                                     ]
                                 )
                             )
@@ -304,10 +300,7 @@ if __name__ == "__main__":
             "modified_image_pred",
             "modified_image_pred_proba",
             "modified_image",
-            "modified_tokens_pos", 
-            "modified_tokens",
-            "original_image_pred_proba_tokens_ids",
-            "original_image_pred_proba_tokens_txt",
+            "evaluated_tokens"
         ],
     )
 
@@ -319,6 +312,7 @@ if __name__ == "__main__":
         embedding_pred_proba=results["embedding_pred_proba"].values,
         modified_image_pred_proba=results["modified_image_pred_proba"].values,
         modified_image=results["modified_image"].values,
+        evaluated_tokens=results["evaluated_tokens"]
     )
     non_array_columns = [
         col
@@ -331,6 +325,7 @@ if __name__ == "__main__":
             "embedding_pred_proba",
             "modified_image_pred_proba",
             "modified_image",
+            "evaluated_tokens"
         ]
     ]
     print("Saving parquet...")

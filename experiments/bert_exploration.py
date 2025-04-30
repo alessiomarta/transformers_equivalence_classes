@@ -173,6 +173,7 @@ def main():
 
             # Parameters
             eq_class_emb_ids = [config[name]["explore"] for name in file_names]
+            eq_class_emb_ids = list(map(lambda x: [x[0]], eq_class_emb_ids)) if params["objective"] == "mlm" else eq_class_emb_ids
             pred_id = [config[name]["objective"] for name in file_names]
 
             for r in range(params["repeat"]):
