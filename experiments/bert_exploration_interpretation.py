@@ -113,12 +113,12 @@ def interpret(
     # original_proba.shape = (n_iterations, max_len, vocab_size) OR (n_iterations, output_size)
     model.eval()
     with torch.no_grad():
-        mlm_preds = decoder(model.bert.encoder(input_embedding).last_hidden_state)
-        # mlm_preds.shape = n_iterations, max_len, vocab_size
-        maxima = torch.argmax(mlm_preds, dim=-1)
-        # maxima.shape = n_iterations, max_len
 
         if mask_or_cls.lower() in ['mask','msk','mlm']:
+            mlm_preds = decoder(model.bert.encoder(input_embedding).last_hidden_state)
+            # mlm_preds.shape = n_iterations, max_len, vocab_size
+            maxima = torch.argmax(mlm_preds, dim=-1)
+            # maxima.shape = n_iterations, max_len
 
             # Original text stats
             original_proba_top_k_ids = torch.argsort(original_proba[keep_constant_id], descending = True).tolist()[:top_k]
@@ -163,6 +163,10 @@ def interpret(
 
         # Classification
         else:
+            mlm_preds = decoder(input_embedding)
+            # mlm_preds.shape = n_iterations, max_len, vocab_size
+            maxima = torch.argmax(mlm_preds, dim=-1)
+            # maxima.shape = n_iterations, max_len
 
             # Original text stats
             json_stats = {
@@ -174,9 +178,9 @@ def interpret(
             # Predictions
             cls_preds = model.classifier(
                 model.bert.pooler(
-                    model.bert.encoder(input_embedding)
+                    model.bert.encoder(input_embedding).last_hidden_state
                 )
-            ).logits
+            )
             # cls_preds.shape = n_iterations, output_size
 
             # Decoding and re-encoding
