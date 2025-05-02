@@ -2,7 +2,38 @@
 
 cd ../experiments
 
-for dir in experiments_data/*; do
+#!/bin/bash
+
+cd ../experiments
+
+for dir in experiments_data_alt/*; do
+    basename_dir=$(basename "$dir")
+    #echo "Checking: $basename_dir"
+
+    # Only proceed if it's a MNIST/CIFAR experiment
+    if [[ "$dir" == *cifar* ]]; then
+        echo "Running exploration for: $basename_dir"
+
+        # Run exploration
+        python3 vit_exploration.py --experiment-path "$dir" --out-dir ../res_alt --device cuda:0
+        sleep 2
+
+        # Find all matching resdirs and sort them by timestamp (descending)
+        matched_resdirs=($(ls -d ../res_alt/*"$basename_dir"* 2>/dev/null | sort -t '-' -k6,6 -k7,7 -r))
+
+        if [[ ${#matched_resdirs[@]} -gt 0 ]]; then
+            latest_resdir="${matched_resdirs[0]}"
+            echo "Latest matching result dir: $latest_resdir"
+
+            # Run interpretation on the most recent result directory
+            python3 vit_exploration_interpretation.py --experiment-path "$dir" --results-dir "$latest_resdir" --device cuda:0
+        else
+            echo "No matching result directory found for $basename_dir"
+        fi
+    fi
+done
+
+for dir in experiments_data_alt/*; do
     basename_dir=$(basename "$dir")
     #echo "Checking: $basename_dir"
 
@@ -11,11 +42,11 @@ for dir in experiments_data/*; do
         echo "Running exploration for: $basename_dir"
 
         # Run exploration
-        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res --device cuda:0
+        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res_alt --device cuda:0 --batch-size 2 
         sleep 2
 
         # Find all matching resdirs and sort them by timestamp (descending)
-        matched_resdirs=($(ls -d ../res/*"$basename_dir"* 2>/dev/null | sort -t '-' -k6,6 -k7,7 -r))
+        matched_resdirs=($(ls -d ../res_alt/*"$basename_dir"* 2>/dev/null | sort -t '-' -k6,6 -k7,7 -r))
 
         if [[ ${#matched_resdirs[@]} -gt 0 ]]; then
             latest_resdir="${matched_resdirs[0]}"
@@ -29,7 +60,7 @@ for dir in experiments_data/*; do
     fi
 done
 
-for dir in experiments_data/*; do
+for dir in experiments_data_alt/*; do
     basename_dir=$(basename "$dir")
     #echo "Checking: $basename_dir"
 
@@ -38,11 +69,11 @@ for dir in experiments_data/*; do
         echo "Running exploration for: $basename_dir"
 
         # Run exploration
-        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res --device cuda:0
+        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res_alt --device cuda:0 --batch-size 2 
         sleep 2
 
         # Find all matching resdirs and sort them by timestamp (descending)
-        matched_resdirs=($(ls -d ../res/*"$basename_dir"* 2>/dev/null | sort -t '-' -k6,6 -k7,7 -r))
+        matched_resdirs=($(ls -d ../res_alt/*"$basename_dir"* 2>/dev/null | sort -t '-' -k6,6 -k7,7 -r))
 
         if [[ ${#matched_resdirs[@]} -gt 0 ]]; then
             latest_resdir="${matched_resdirs[0]}"
