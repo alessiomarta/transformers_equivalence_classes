@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     if arguments.device is None:
         arguments.device = torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
-        ).type
+        )
     else:
         arguments.device = torch.device(arguments.device)
 
