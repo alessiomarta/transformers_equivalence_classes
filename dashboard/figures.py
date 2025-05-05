@@ -20,11 +20,11 @@ def plot_embedding_init_pred_proba(filtered):
     )
     grouped_df["embedding_pred_init_proba_mean"] = grouped_df[
         "embedding_pred_init_proba"
-    ].apply(lambda x: np.mean(np.stack(x)))
+    ].apply(lambda x: np.nanmean(np.stack(x)))
     
     grouped_df["embedding_pred_init_proba_sd"] = grouped_df[
         "embedding_pred_init_proba"
-    ].apply(lambda x: np.std(np.stack(x)))
+    ].apply(lambda x: np.nanstd(np.stack(x)))
     
     fig = go.Figure()
     for alg in grouped_df["algorithm"].unique():
@@ -69,10 +69,10 @@ def plot_embedding_top_pred_proba(filtered):
     )
     grouped_df["embedding_pred_max_proba_mean"] = grouped_df[ 
         "embedding_pred_proba"
-    ].apply(lambda x: np.max(x, axis=-1).mean())
+    ].apply(lambda x: np.nanmean(np.nanmax(x, axis=-1)))
     grouped_df["embedding_pred_max_proba_sd"] = grouped_df[
         "embedding_pred_proba"
-    ].apply(lambda x: np.max(x, axis=-1).std())
+    ].apply(lambda x: np.nanstd(np.nanmax(x, axis=-1)))
     fig = go.Figure()
     for alg in grouped_df["algorithm"].unique():
         subset = grouped_df[grouped_df["algorithm"] == alg].sort_values(by="iteration")
@@ -106,6 +106,14 @@ def plot_embedding_top_pred_proba(filtered):
     )
     return fig
 
+def safe_cityblock(a, b):
+    a = np.array(a)
+    b = np.array(b)
+    mask = ~np.isnan(a) & ~np.isnan(b)
+    if not np.any(mask):
+        return np.nan  # or 0, depending on how you want to treat missing comparisons
+    return cityblock(a[mask], b[mask])
+
 def plot_prediction_difference(filtered):
     grouped_df = (
         filtered.groupby(["iteration", "algorithm"])
@@ -114,14 +122,14 @@ def plot_prediction_difference(filtered):
     )
     grouped_df["modified_image_pred_proba_mean"] = grouped_df[
         "modified_image_pred_proba"
-    ].apply(lambda x: np.mean(x, axis=0))
+    ].apply(lambda x: np.nanmean(x, axis=0))
     
     grouped_df["embedding_pred_proba_mean"] = grouped_df[
         "embedding_pred_proba"
-    ].apply(lambda x: np.mean(x, axis=0))
+    ].apply(lambda x: np.nanmean(x, axis=0))
     
     grouped_df["decoding_difference"] = grouped_df.apply(
-        lambda row: cityblock(
+        lambda row: safe_cityblock(
             row["embedding_pred_proba_mean"], row["modified_image_pred_proba_mean"]
         ),
         axis=1,
@@ -224,8 +232,8 @@ def delta_over_iterations(filtered):
     )
 
     # Compute stats
-    grouped_df["delta_mean"] = grouped_df["delta"].apply(lambda x: np.mean(x))
-    grouped_df["delta_sd"] = grouped_df["delta"].apply(lambda x: np.std(x))
+    grouped_df["delta_mean"] = grouped_df["delta"].apply(np.mean)
+    grouped_df["delta_sd"] = grouped_df["delta"].apply(np.std)
 
     fig = go.Figure()
 
@@ -267,16 +275,24 @@ def delta_over_iterations(filtered):
     return fig
 
 def delta_vs_pixel_diff(filtered):
+    def custom_diff(current, previous):
+        if pd.isna(current).all():
+            return None
+        if previous is None:
+            return None
+        # Example: Return True if different, else False
+        return current != previous
+    
     grouped_df = (
         filtered.groupby(["iteration", "algorithm"])
         .agg(list)
-        .reset_index()
+        .reset_index() 
     )
     grouped_df["delta_mean"] = grouped_df["delta"].apply(np.mean)
-    grouped_df["delta_sd"] = grouped_df["delta"].apply(np.std)
+    grouped_df["delta_sd"] = grouped_df["delta"].apply(np.std) 
     fig = make_subplots(
         rows=2, cols=1,
-        shared_xaxes=True,
+        shared_xaxes=True, 
         vertical_spacing=0.1,
         subplot_titles=(
             "Pixel difference",
@@ -285,16 +301,12 @@ def delta_vs_pixel_diff(filtered):
     )
     
     for alg in filtered['algorithm'].unique():
-        # Step 1: Sort so diffs are meaningful
         fig6df = filtered[filtered['algorithm'] == alg].sort_values(
             ["dataset", "input_name", "delta_multiplier", "patch_option", "iteration", "repetition"]
         )
-
-        # Step 2: Compute difference with a lag of 3
-        fig6df["patch_diff"] = fig6df["modified_image"].diff(periods=3)
-        fig6df["tot_patch_diff"] = fig6df["patch_diff"].apply(
-                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
-            )
+        fig6df["tot_patch_diff"] = fig6df["modified_image_diff"].apply(
+                lambda x: np.mean(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+            ) 
 
         # Step 3: Group and aggregate mean of patch_diff
         mean_patch_diff_df = (
@@ -346,14 +358,12 @@ def plot_embedding_all_class_prob(filtered, algo, class_labels):
         filtered["algorithm"] == algo,
         ["iteration", "repetition", "embedding_pred_proba"]
     ].sort_values(by="iteration")
-
     # Group by iteration and compute mean class probabilities
     grouped = (
         algo_df.groupby("iteration")["embedding_pred_proba"]
-        .apply(lambda probs: np.mean(np.stack(probs), axis=0))
+        .apply(lambda probs: np.nanmean(np.stack(probs), axis=0))
         .reset_index()
     )
-
     # Convert list of probs to DataFrame with one column per class
     class_probs_df = grouped["embedding_pred_proba"].apply(pd.Series)
     class_probs_df["iteration"] = grouped["iteration"]
@@ -365,10 +375,11 @@ def plot_embedding_all_class_prob(filtered, algo, class_labels):
         var_name="class",
         value_name="probability"
     )
-    try:
+    if filtered["dataset"].values[0] != "winobias":
         melted["class_label"] = melted["class"].astype(int).map(lambda x: class_labels[int(x)])
-    except TypeError:
-        melted["class_label"] = melted["class"].astype(int).map(lambda x: class_labels.convert_ids_to_tokens(x))
+    else:
+        evaluated_tokens = list(filtered["evaluated_tokens"].values[0])
+        melted["class_label"] = melted["class"].map(lambda x: class_labels.convert_ids_to_tokens(evaluated_tokens[x]))
 
     # Create line plot
     fig = px.line(
@@ -389,7 +400,7 @@ def plot_embedding_all_class_prob(filtered, algo, class_labels):
 
 def plot_conf_matrix_orig_modified(filtered, class_labels, input_name=None, normalize=False):
     
-    if filtered["dataset"].values[0] in ["mnist", "cifar"]:
+    if filtered["dataset"].values[0] != "winobias":
         class_labels_numeric = list(map(str, range(len(class_labels))))
     else:
         class_labels_numeric = list(map(str, filtered["evaluated_tokens"].values[0]))
@@ -433,7 +444,7 @@ def plot_conf_matrix_orig_modified(filtered, class_labels, input_name=None, norm
     return fig
 
 def plot_conf_matrix_orig_embed(filtered, class_labels, input_name=None, normalize=False):
-    if filtered["dataset"].values[0] in ["mnist", "cifar"]:
+    if filtered["dataset"].values[0] != "winobias":
         class_labels_numeric = list(map(str, range(len(class_labels))))
     else:
         class_labels_numeric = list(map(str, filtered["evaluated_tokens"].values[0]))
@@ -483,10 +494,10 @@ def norm_vs_pixel_diff(filtered):
     )
 
     # Step 2: Compute difference with a lag of 3
-    df["patch_diff"] = df["modified_image"].diff(periods=3).apply(
-                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+    df["patch_diff"] = df["modified_image_diff"].apply(
+                lambda x: np.mean(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
-    df = df.dropna()
+    #df = df.dropna()
     fig = px.scatter(df, x="input_embedding_norm", y="patch_diff", color="algorithm", hover_data=["input_embedding_norm", "patch_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding norm vs Pixel diff",
@@ -503,10 +514,10 @@ def norm_vs_proba_diff(filtered):
     )
 
     # Step 2: Compute difference with a lag of 3
-    df["proba_diff"] = df["embedding_pred_proba"].diff(periods=3).apply(
-                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+    df["proba_diff"] = df["embedding_proba_diff"].apply(
+                lambda x: np.nanmean(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
-    df = df.dropna()
+    #df = df.dropna()
     fig = px.scatter(df, x="input_embedding_norm", y="proba_diff", color="algorithm", hover_data=["input_embedding_norm", "proba_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding norm vs Embedding probabilities diff",
@@ -516,7 +527,6 @@ def norm_vs_proba_diff(filtered):
     )
     return fig
 
-
 def max_vs_pixel_diff(filtered):
     # Step 1: Sort so diffs are meaningful
     df = filtered.sort_values(
@@ -524,10 +534,10 @@ def max_vs_pixel_diff(filtered):
     )
 
     # Step 2: Compute difference with a lag of 3
-    df["patch_diff"] = df["modified_image"].diff(periods=3).apply(
-                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+    df["patch_diff"] = df["modified_image_diff"].apply(
+                lambda x: np.mean(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
-    df = df.dropna()
+    #df = df.dropna()
     fig = px.scatter(df, x="input_embedding_max", y="patch_diff", color="algorithm", hover_data=["input_embedding_max", "patch_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding max vs Pixel diff",
@@ -544,10 +554,10 @@ def max_vs_proba_diff(filtered):
     )
 
     # Step 2: Compute difference with a lag of 3
-    df["proba_diff"] = df["embedding_pred_proba"].diff(periods=3).apply(
-                lambda x: np.sum(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
+    df["proba_diff"] = df["embedding_proba_diff"].apply(
+                lambda x: np.nanmean(np.abs(x)) if isinstance(x, (np.ndarray, torch.Tensor)) else np.nan
             )
-    df = df.dropna()
+    #df = df.dropna()
     fig = px.scatter(df, x="input_embedding_max", y="proba_diff", color="algorithm", hover_data=["input_embedding_max", "proba_diff", "algorithm", "iteration"], color_discrete_map=COLOR_MAP,)
     fig.update_layout(
         title="Embedding max vs Embedding probabilities diff",

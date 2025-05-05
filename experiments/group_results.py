@@ -6,9 +6,11 @@ import json
 import pickle
 from tqdm import tqdm
 import pandas as pd
-from numpy import savez_compressed, load, array
+from numpy import savez_compressed, load, array, argmax
 from numpy import max as npmax
+import numpy as  np
 from numpy.linalg import norm
+from scipy.special import softmax
 import torch
 
 
@@ -150,9 +152,9 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset not in ["mnist", "cifar", "winobias"]:
-            continue  # TODO remove when everything is ready
-        if dataset == "cifar" and  p["delta_mult"] == 5.0:
+        if dataset == "cifar" and p["delta_mult"] == 5.0:
+            continue
+        if dataset == "cifar" and p["patches"] == "all" and p["delta_mult"] == 1.0:
             continue
         if exp_res_dir is None:
             print(f"No result files found for {config_file}")
@@ -187,6 +189,7 @@ if __name__ == "__main__":
                         interpretation_pickles = collect_pickle_res_files(
                             os.path.join(f, "interpretation")
                         )
+                        prev_modified, prev_proba, init_proba = None, None, None
                         for iteration in result_info["iteration"]:
                             it = (
                                 iteration // p["save_each"]
@@ -212,7 +215,22 @@ if __name__ == "__main__":
                             mod_pos, mod_txt, proba_tokens_ids, proba_tokens_txt = None, None, None, None
                             if not isinstance(interpretation_pickle["modified_patches"], list):
                                 if interpretation_pickle["modified_patches"].dim()>1:
-                                    interpretation_pickle["modified_patches"] = interpretation_pickle["modified_patches"].flatten() #this should be fixed with later intepretation results
+                                    interpretation_pickle["modified_patches"] = interpretation_pickle["modified_patches"].flatten() #this should be fixed with later intepretation results                                
+                            if prev_modified is not None:
+                                if dataset in ["hatespeech", "winobias"]:
+                                    diff = 0
+                                    for i, el in enumerate(interpretation_pickle["modified_patches"]):
+                                        if el != prev_modified[i]:
+                                            diff +=1
+                                else:
+                                    diff = (prev_modified - interpretation_pickle["modified_patches"]).detach().cpu().squeeze().numpy()
+                            if prev_proba is not None:
+                                diff_proba = (prev_proba - softmax(interpretation_pickle["embedding_pred_proba"]))
+                            if dataset in ["hatespeech", "winobias"]:
+                                idx = argmax(interpretation_pickle["original_image_pred_proba"].squeeze())
+                                init_proba = softmax(interpretation_pickle["embedding_pred_proba"].squeeze())[idx].item()
+                            else:
+                                init_proba = softmax(interpretation_pickle["embedding_pred_proba"].squeeze())[interpretation_pickle["original_image_pred"]].item()
                             results.append(
                                 tuple(
                                     [
@@ -239,28 +257,16 @@ if __name__ == "__main__":
                                         input_emb_max, # input_embedding max
                                         result_info.get("time", None)[it],  # time
                                         repetition,
-                                        interpretation_pickle[
+                                        softmax(interpretation_pickle[
                                             "original_image_pred_proba"
-                                        ]
-                                        .detach()
-                                        .cpu()
-                                        .squeeze(0)
-                                        .numpy(),
-                                        interpretation_pickle["original_image_pred"],
-                                        interpretation_pickle["embedding_pred_proba"]
-                                        .detach()
-                                        .cpu()
-                                        .squeeze(0)
-                                        .numpy(),
+                                        ]),
+                                        interpretation_pickle["original_image_pred"] if isinstance(interpretation_pickle["original_image_pred"], int) else interpretation_pickle["original_image_pred"].item(),
+                                        softmax(interpretation_pickle["embedding_pred_proba"]),
                                         interpretation_pickle["embedding_pred"],
                                         interpretation_pickle["modified_image_pred"],
-                                        interpretation_pickle[
+                                        softmax(interpretation_pickle[
                                             "modified_image_pred_proba"
-                                        ]
-                                        .detach()
-                                        .cpu()
-                                        .squeeze(0)
-                                        .numpy(),
+                                        ]),
                                         interpretation_pickle[
                                             "modified_patches"
                                         ]
@@ -268,10 +274,16 @@ if __name__ == "__main__":
                                         .cpu()
                                         .squeeze(0)
                                         .numpy() if not isinstance(interpretation_pickle["modified_patches"], list) else array(interpretation_pickle["modified_patches"]),
-                                        [0] if dataset != "winobias" else interpretation_pickle["original_image_pred_proba_tokens"]
+                                        [-1] if dataset != "winobias" else interpretation_pickle["original_image_pred_proba_tokens"]
+                                        ,
+                                        None if prev_modified is None else diff,
+                                        None if prev_proba is None else diff_proba,
+                                        init_proba
                                     ]
                                 )
                             )
+                            prev_modified = interpretation_pickle["modified_patches"]
+                            prev_proba = softmax(interpretation_pickle["embedding_pred_proba"])
                     
     results = pd.DataFrame(
         results,
@@ -300,7 +312,10 @@ if __name__ == "__main__":
             "modified_image_pred",
             "modified_image_pred_proba",
             "modified_image",
-            "evaluated_tokens"
+            "evaluated_tokens",
+            "modified_image_diff",
+            "embedding_proba_diff",
+            "embedding_pred_init_proba",
         ],
     )
 
@@ -312,7 +327,10 @@ if __name__ == "__main__":
         embedding_pred_proba=results["embedding_pred_proba"].values,
         modified_image_pred_proba=results["modified_image_pred_proba"].values,
         modified_image=results["modified_image"].values,
-        evaluated_tokens=results["evaluated_tokens"]
+        evaluated_tokens=results["evaluated_tokens"].values,
+        modified_image_diff = results["modified_image_diff"].values,
+        embedding_proba_diff = results["embedding_proba_diff"].values,
+        embedding_pred_init_proba = results["embedding_pred_init_proba"].values
     )
     non_array_columns = [
         col
@@ -325,7 +343,10 @@ if __name__ == "__main__":
             "embedding_pred_proba",
             "modified_image_pred_proba",
             "modified_image",
-            "evaluated_tokens"
+            "evaluated_tokens",
+            "modified_image_diff",
+            "embedding_proba_diff", 
+            "embedding_pred_init_proba"
         ]
     ]
     print("Saving parquet...")
