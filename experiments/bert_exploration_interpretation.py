@@ -106,19 +106,20 @@ def interpret(
     # Prepare the input embedding
     input_embedding = input_embedding.to(device, dtype = model.dtype)
     original_sentence = " ".join([tok for m,tok in zip(encoded_sent.special_tokens_mask, tokenizer.convert_ids_to_tokens(original_sent_ids)) if not m]).replace(" ##", "")
-    
-    original_proba = model(
-        input_ids = torch.tensor(original_sent_ids).unsqueeze(0).to(device),
-        attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device)
-    ).logits.squeeze()
     # original_proba.shape = (n_iterations, max_len, vocab_size) OR (n_iterations, output_size)
     model.eval()
     with torch.no_grad():
-
+        attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device)
+        extended_attention_mask = model.get_extended_attention_mask(attention_mask, input_embedding[0].shape).to(device)
+        original_proba = model(
+            input_ids = torch.tensor(original_sent_ids).unsqueeze(0).to(device),
+            attention_mask = attention_mask # not passing through the encoder directly, attention is managed in the class
+        ).logits.squeeze()
+        
         if mask_or_cls.lower() in ['mask','msk','mlm']:
             mlm_preds = decoder(model.bert.encoder(
                 input_embedding, 
-                attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]) # these are logits!
+                attention_mask = extended_attention_mask)[0]) # these are logits!
             # mlm_preds.shape = n_iterations, max_len, vocab_size
             maxima = torch.argmax(mlm_preds, dim=-1)
             # maxima.shape = n_iterations, max_len
@@ -169,9 +170,10 @@ def interpret(
 
         # Classification
         else:
+            #decoder.bert.encoder(input_embedding,attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]
             sequence_output = decoder.bert.encoder(
                 input_embedding,
-                attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]
+                attention_mask = extended_attention_mask)[0]
             # pooled_output = decoder.bert.pooler(sequence_output) not used in BertForMaskedLM class
             mlm_preds = decoder.cls(sequence_output)
             # mlm_preds.shape = n_iterations, max_len, vocab_size
@@ -190,7 +192,7 @@ def interpret(
                 model.bert.pooler(
                     model.bert.encoder(
                         input_embedding,
-                        attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]
+                        attention_mask = extended_attention_mask)[0]
                 )
             )
             # cls_preds.shape = n_iterations, output_size
