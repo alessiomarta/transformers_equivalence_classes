@@ -7,11 +7,11 @@ for dir in experiments_data/*; do
     #echo "Checking: $basename_dir"
 
     # Only proceed if it's a hatespeech experiment
-    if [[ "$dir" == *hatespeech-1p0* || "$dir" == *hatespeech-10p0* ]]; then
+    if [[ "$dir" == *winobias-1p0* || "$dir" == *winobias-10p0* ]]; then
         echo "Running exploration for: $basename_dir"
 
         # Run exploration
-        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res --device cuda:1 --batch-size 8
+        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res --device cuda:0 --batch-size 16
         sleep 2
 
         # Find all matching resdirs and sort them by timestamp (descending)
@@ -22,7 +22,7 @@ for dir in experiments_data/*; do
             echo "Latest matching result dir: $latest_resdir"
 
             # Run interpretation on the most recent result directory
-            python3 bert_exploration_interpretation.py --experiment-path "$dir" --results-dir "$latest_resdir" --device cuda:1
+            python3 bert_exploration_interpretation.py --experiment-path "$dir" --results-dir "$latest_resdir" --device cuda:0
         else
             echo "No matching result directory found for $basename_dir"
         fi
@@ -33,12 +33,12 @@ for dir in experiments_data/*; do
     basename_dir=$(basename "$dir")
     #echo "Checking: $basename_dir"
 
-    # Only proceed if it's a CIFAR experiment 
-    if [[ "$dir" == *cifar-1p0-16-all* || "$dir" == *cifar-10p0-16-q2* ]]; then
+    # Only proceed if it's a hatespeech experiment
+    if [[ "$dir" == *hatespeech-1p0* || "$dir" == *hatespeech-10p0* ]]; then
         echo "Running exploration for: $basename_dir"
 
         # Run exploration
-        python3 vit_exploration.py --experiment-path "$dir" --out-dir ../res --device cuda:1
+        python3 bert_exploration.py --experiment-path "$dir" --out-dir ../res --device cuda:0 --batch-size 8
         sleep 2
 
         # Find all matching resdirs and sort them by timestamp (descending)
@@ -49,7 +49,7 @@ for dir in experiments_data/*; do
             echo "Latest matching result dir: $latest_resdir"
 
             # Run interpretation on the most recent result directory
-            python3 vit_exploration_interpretation.py --experiment-path "$dir" --results-dir "$latest_resdir" --device cuda:1
+            python3 bert_exploration_interpretation.py --experiment-path "$dir" --results-dir "$latest_resdir" --device cuda:0
         else
             echo "No matching result directory found for $basename_dir"
         fi
