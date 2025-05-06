@@ -17,8 +17,8 @@ cd experiments
 python3 prepare_experiment.py --default
 
 4a. For a single exploration:
-python3 vit_exploration.py --experiment-path ./experiments_data/mnist-1p0-32-one --out-dir ../res
-python3 bert_exploration.py --experiment-path ./experiments_data/winobias-1p0-32-target-word --out-dir ../res
+python3 vit_exploration.py --experiment-path ./experiments_data/mnist-1p0-16-one --out-dir ../res
+python3 bert_exploration.py --experiment-path ./experiments_data/winobias-1p0-16-target-word --out-dir ../res
 
 4b. For a single interpretation:
 python3 vit_exploration_interpretation.py --experiment-path experiments_data/cifar-1p0-32-all --results-dir ../res/cifar-1p0-32-all-20250403-200221
