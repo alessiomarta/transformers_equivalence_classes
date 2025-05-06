@@ -29,11 +29,10 @@ class OutputOnlyModel(torch.nn.Module):
 
         self.model = model
 
-    def forward(self, X: torch.Tensor, pred_id: List[int] = None, select: torch.Tensor = None):
-        #attention masks missing!!
-
+    def forward(self, X: torch.Tensor, pred_id: List[int] = None, select: torch.Tensor = None, attention_mask = None):
         if hasattr(self.model, "bert"):
-            encoder_output = self.model.bert.encoder(X)['last_hidden_state']
+            #attention masks missing!!
+            encoder_output = self.model.bert.encoder(X, attention_mask = attention_mask)['last_hidden_state']
 
             if hasattr(self.model, "classifier"):
                 y = self.model.classifier(
@@ -86,7 +85,7 @@ def save_object(obj, filename):
     savez_compressed(filename + "/embeddings.npz", **data)
 
 
-def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None, select: torch.Tensor = None, pred_id: List[int] = None):
+def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None, select: torch.Tensor = None, pred_id: List[int] = None, attention_mask = None):
     """
     Computes the full Jacobian matrix of the neural network output with respect
     to its input.
@@ -114,7 +113,8 @@ def jacobian(nn_input: torch.Tensor, model: torch.nn.Module = None, select: torc
         jacrev(model, argnums = 0, has_aux=True)(
             x, 
             pred_id[i],
-            select[i]
+            select[i],
+            None if attention_mask is None else attention_mask[i]
         )
     for i,x in enumerate(nn_input.split(1))]))
     batch_jacobian = torch.stack(batch_jacobian)
@@ -135,7 +135,8 @@ def pullback(
     select: torch.Tensor = None,
     pred_id: List[int] = None,
     degrowth: bool = True,
-    same_equivalence_class: bool = True
+    same_equivalence_class: bool = True,
+    attention_mask = None,
 ):
     """
     Computes the pullback metric tensor using the given input and output embeddings and a metric tensor g.
@@ -159,7 +160,7 @@ def pullback(
     if pred_id is None:
         pred_id = [0]*input_simec.shape[0]
 
-    jac, predictions = jacobian(input_simec, model, select=select, pred_id = pred_id)
+    jac, predictions = jacobian(input_simec, model, select=select, pred_id = pred_id, attention_mask = attention_mask)
     # jac.shape = (batch_size, output_size, N_patches+1, embedding_size)
     # predictions.shape = (batch_size,)
     while jac.dim() < 4:
@@ -230,7 +231,8 @@ def explore(
     start_iteration=0,
     retain_top_k: int = 10,
     degrowth: bool = True,
-    dtype = torch.float64
+    dtype = torch.float64,
+    attention_mask=None,
 ):
     """
     Explore the manifold defined by the model's embedding space to analyze
@@ -270,7 +272,7 @@ def explore(
     #output_emb = model.model.encoder(input_emb)[0]
     # output_emb.shape = (batch_size, N_classes)
     if isinstance(input_model, BertForMaskedLM):
-        output_embedding = input_model.bert.encoder(input_emb)
+        output_embedding = input_model.bert.encoder(input_emb, attention_mask = attention_mask)
         indices = input_model.cls(output_embedding['last_hidden_state']).argsort(dim = -1)[:,:,-retain_top_k:]
     else:
         indices = None
@@ -324,7 +326,8 @@ def explore(
             select=indices,
             pred_id=pred_id,
             degrowth=degrowth,
-            same_equivalence_class=same_equivalence_class
+            same_equivalence_class=same_equivalence_class,
+            attention_mask = attention_mask
         )
 
         # Detach values to reduce CUDA memory consumption

@@ -10,6 +10,7 @@ import os
 import logging as log
 import time
 from transformers import logging
+from transformers.modeling_attn_mask_utils import _prepare_4d_attention_mask_for_sdpa as sdpa_mask
 import torch
 import sys
 from tqdm import tqdm
@@ -141,13 +142,13 @@ def main():
     input_tokens = tokenizer(
         txts,
         return_tensors="pt",
-        return_attention_mask=False,
+        return_attention_mask=True,
         add_special_tokens=False if params["objective"] in ["mlm", "msk", "mask"] else True, # nelle frasi hatespeech non ci sono [cls] e [sep]
         padding = True
     ).to(device) 
-    
+    attention_masks = input_tokens.pop("attention_mask").cpu().to(bool)
     token_embeddings = model.bert.embeddings(**input_tokens).cpu()
-    token_embeddings = torch.utils.data.TensorDataset(token_embeddings)
+    token_embeddings = torch.utils.data.TensorDataset(token_embeddings, attention_masks)
     sent_loader = torch.utils.data.DataLoader(
         token_embeddings,
         batch_size=batch_size,
@@ -166,7 +167,7 @@ def main():
 
     for algorithm in algorithms:
         pbar = tqdm(total=params["repeat"] * len(sent_loader), desc=f"{args.experiment_path}, {algorithm.upper()}")
-        for idx, input_embedding in enumerate(sent_loader):
+        for idx, (input_embedding, attention_mask) in enumerate(sent_loader):
             # input_embedding[0].shape = (batch_size, N_patches+1, embedding_size)
             image_indices = (batch_size*idx, batch_size*(idx+1))
             file_names = names[image_indices[0]:image_indices[1]]
@@ -218,9 +219,11 @@ def main():
                             )
                         for name in file_names]
                         distance = None
-                        start_embeddings = input_embedding[0]
+                        start_embeddings = input_embedding
                         start_iteration = 0
-
+                    extended_attention_mask = model.get_extended_attention_mask(attention_mask, start_embeddings.shape)
+                    sdpa_attention_mask = sdpa_mask(attention_mask, start_embeddings.dtype, tgt_len = start_embeddings.shape[1])
+                    assert torch.all(extended_attention_mask == sdpa_attention_mask)
                     explore(
                         same_equivalence_class=(algorithm == "simec"),
                         input_embedding=start_embeddings.to(device),
@@ -240,8 +243,10 @@ def main():
                         distance=distance,
                         retain_top_k=5,
                         degrowth=params['degrowth'] if 'degrowth' in params else False,
-                        dtype = torch.float64
+                        dtype = torch.float64,
+                        attention_mask=extended_attention_mask.to(device),
                     )
+                    
                     pbar.update(1)
                 except Exception as e:
                     log.error(
