@@ -57,7 +57,8 @@ def plot_embedding_init_pred_proba(filtered):
         title="Probability of the Original Class over Iterations, evaluated on embedding",
         xaxis_title="Iteration",
         yaxis_title="Probability",
-        template="plotly_white"
+        template="plotly_white",
+        yaxis=dict(range=(0.2, 1.0))
     )
     return fig
 
@@ -68,11 +69,11 @@ def plot_embedding_top_pred_proba(filtered):
         .reset_index()
     )
     grouped_df["embedding_pred_max_proba_mean"] = grouped_df[ 
-        "embedding_pred_proba"
-    ].apply(lambda x: np.nanmean(np.nanmax(x, axis=-1)))
+        "embedding_pred_proba_max"
+    ].apply(lambda x: np.nanmean(x, axis=-1))
     grouped_df["embedding_pred_max_proba_sd"] = grouped_df[
-        "embedding_pred_proba"
-    ].apply(lambda x: np.nanstd(np.nanmax(x, axis=-1)))
+        "embedding_pred_proba_max"
+    ].apply(lambda x: np.nanstd(x, axis=-1))
     fig = go.Figure()
     for alg in grouped_df["algorithm"].unique():
         subset = grouped_df[grouped_df["algorithm"] == alg].sort_values(by="iteration")
@@ -102,7 +103,8 @@ def plot_embedding_top_pred_proba(filtered):
         title="Probability of the Top Class over Iterations, evaluated on embedding",
         xaxis_title="Iteration",
         yaxis_title="Probability",
-        template="plotly_white"
+        template="plotly_white",
+        yaxis=dict(range=(0.2, 1.0))
     )
     return fig
 

@@ -30,7 +30,7 @@ def load_data(out_name):
     for col in df.columns:
         if "pred" in col and "proba" not in col:
             df[col] = df[col].astype(str)
-
+    df["embedding_pred_proba_max"] = df["embedding_pred_proba"].apply(np.nanmax)
     df["patch_option"] = df["patch_option"].apply(lambda x: PATCH_MAP[x])
     df.sort_values("iteration", inplace=True)
 
@@ -55,6 +55,7 @@ def aggregate_data(df):
         embedding_pred = group.embedding_pred.values
         embedding_pred_init_proba = np.nanmean(group.embedding_pred_init_proba)
         embedding_pred_proba = np.nanmean(np.stack(group.embedding_pred_proba), axis = 0).squeeze()
+        embedding_pred_proba_max = np.nanmean(np.stack(group.embedding_pred_proba_max), axis = 0).squeeze()
         embedding_proba_diff = None if group.embedding_proba_diff.iloc[0] is None else np.nanmean(np.abs(np.stack(group.embedding_proba_diff)), axis = 0)
         evaluated_tokens = None if group.evaluated_tokens.iloc[0] == [-1] else group.evaluated_tokens.iloc[0]
         input_embedding_max = np.mean(group.input_embedding_max)
@@ -86,6 +87,7 @@ def aggregate_data(df):
             "embedding_pred": embedding_pred,
             "embedding_pred_init_proba": embedding_pred_init_proba,
             "embedding_pred_proba": embedding_pred_proba,
+            "embedding_pred_proba_max":embedding_pred_proba_max,
             "embedding_proba_diff": embedding_proba_diff,
             "evaluated_tokens": evaluated_tokens,
             "input_embedding_max": input_embedding_max,
