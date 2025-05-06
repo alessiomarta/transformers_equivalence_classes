@@ -341,7 +341,8 @@ def load_bert_model(
     decoder = BertForMaskedLM.from_pretrained("bert-base-uncased")
     deactivate_dropout_layers(decoder)
     decoder = decoder.to(device)
-    bert_model.decoder = lambda x: decoder.cls(decoder.bert.encoder(x)[0])
+    #bert_model.decoder = lambda x: decoder.cls(decoder.bert.encoder(x)[0])
+    bert_model.decoder = decoder.to(device)
     
     return bert_tokenizer, bert_model
 

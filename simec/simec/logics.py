@@ -30,6 +30,7 @@ class OutputOnlyModel(torch.nn.Module):
         self.model = model
 
     def forward(self, X: torch.Tensor, pred_id: List[int] = None, select: torch.Tensor = None):
+        #attention masks missing!!
 
         if hasattr(self.model, "bert"):
             encoder_output = self.model.bert.encoder(X)['last_hidden_state']

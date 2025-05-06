@@ -90,6 +90,7 @@ def interpret(
         eq_class_words_ids["eq_class_w"],
         eq_class_words_ids["keep_constant"],
     )
+    eq_class_ids = [t[0] for t in eq_class]
     keep_constant_id, keep_constant_txt = keep_constant
     interpretation_path = os.path.join(path, "interpretation")
     os.makedirs(interpretation_path, exist_ok=True)
@@ -115,7 +116,9 @@ def interpret(
     with torch.no_grad():
 
         if mask_or_cls.lower() in ['mask','msk','mlm']:
-            mlm_preds = decoder(model.bert.encoder(input_embedding).last_hidden_state)
+            mlm_preds = decoder(model.bert.encoder(
+                input_embedding, 
+                attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]) # these are logits!
             # mlm_preds.shape = n_iterations, max_len, vocab_size
             maxima = torch.argmax(mlm_preds, dim=-1)
             # maxima.shape = n_iterations, max_len
@@ -129,15 +132,18 @@ def interpret(
                 "original_image_pred": original_proba_top_k_ids[0]
             }
             
-            full_txt = [
-                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")#il padding non lo vogliamo, ma il mask sì
-            for row in maxima]
-            
             # Decoding and re-encoding
             maxima[:,keep_constant_id] = tokenizer.mask_token_id
-            decoded_texts = [
-                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")#il padding non lo vogliamo, ma il mask sì
-            for row in maxima]
+            original_tokenized = tokenizer.tokenize(original_sentence, add_special_tokens = False)
+            decoded_texts = []
+            for row in maxima:
+                decoded_text = []
+                for i, w in enumerate(original_tokenized):
+                    if i not in eq_class_ids or i == 0:
+                        decoded_text.append(w)
+                    else:
+                        decoded_text.append(tokenizer.convert_ids_to_tokens([row[i]])[0])
+                decoded_texts.append(" ".join(decoded_text).replace(" ##", ""))
                         
             re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt", add_special_tokens=False)
             new_logits = model(**re_encoded_input.to(device)).logits
@@ -148,8 +154,8 @@ def interpret(
                 json_stats['embedding_pred_proba'] = mlm_preds[i,keep_constant_id,original_proba_top_k_ids].to("cpu")
                 json_stats['embedding_pred'] = original_proba_top_k_ids[torch.argmax(mlm_preds[i,keep_constant_id,original_proba_top_k_ids]).to("cpu").item()]
 
-                json_stats["modified_sentence"] = full_txt[i]
-                json_stats['modified_patches'] = mlm_preds[i,[el[0] for el in eq_class]].argmax(dim=-1).to("cpu").tolist()
+                json_stats["modified_sentence"] = decoded_texts[i]
+                json_stats['modified_patches'] = mlm_preds[i,eq_class_ids].argmax(dim=-1).to("cpu").tolist()
 
                 json_stats['modified_image_pred_proba'] = new_logits[i,keep_constant_id,original_proba_top_k_ids].to("cpu")
 
@@ -163,7 +169,11 @@ def interpret(
 
         # Classification
         else:
-            mlm_preds = decoder(input_embedding)
+            sequence_output = decoder.bert.encoder(
+                input_embedding,
+                attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]
+            # pooled_output = decoder.bert.pooler(sequence_output) not used in BertForMaskedLM class
+            mlm_preds = decoder.cls(sequence_output)
             # mlm_preds.shape = n_iterations, max_len, vocab_size
             maxima = torch.argmax(mlm_preds, dim=-1)
             # maxima.shape = n_iterations, max_len
@@ -178,15 +188,24 @@ def interpret(
             # Predictions
             cls_preds = model.classifier(
                 model.bert.pooler(
-                    model.bert.encoder(input_embedding).last_hidden_state
+                    model.bert.encoder(
+                        input_embedding,
+                        attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device).to(bool))[0]
                 )
             )
             # cls_preds.shape = n_iterations, output_size
 
             # Decoding and re-encoding
-            decoded_texts = [
-                " ".join(['[CLS]'] + [w for w,m in zip(tokenizer.convert_ids_to_tokens(row), encoded_sent.special_tokens_mask) if not m][1:-1] + ["[SEP]"]).replace(" ##", "")
-            for row in maxima]
+            original_tokenized = tokenizer.tokenize(original_sentence, add_special_tokens = True)
+            decoded_texts = []
+            for row in maxima:
+                decoded_text = []
+                for i, w in enumerate(original_tokenized):
+                    if i not in eq_class_ids or i == 0:
+                        decoded_text.append(w)
+                    else:
+                        decoded_text.append(tokenizer.convert_ids_to_tokens([row[i]])[0])
+                decoded_texts.append(" ".join(decoded_text).replace(" ##", ""))
             
             re_encoded_input = tokenizer(decoded_texts, padding = True, return_tensors="pt", add_special_tokens=False)
             new_logits = model(**re_encoded_input.to(device)).logits
@@ -198,7 +217,7 @@ def interpret(
                 json_stats['embedding_pred'] = torch.argmax(cls_preds[i]).to("cpu").item()
 
                 json_stats["modified_sentence"] = decoded_texts[i]
-                json_stats['modified_patches'] = mlm_preds[i,[el[0] for el in eq_class]].argmax(dim=-1).to("cpu").tolist()
+                json_stats['modified_patches'] = mlm_preds[i,eq_class_ids].argmax(dim=-1).to("cpu").tolist()
 
                 json_stats['modified_image_pred_proba'] = new_logits[i].to("cpu")
 
