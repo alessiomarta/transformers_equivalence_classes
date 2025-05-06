@@ -14,6 +14,7 @@ import os
 import logging as log
 from tqdm import tqdm
 from transformers import BertTokenizerFast, logging
+from transformers.modeling_attn_mask_utils import _prepare_4d_attention_mask_for_sdpa as sdpa_mask
 from tokenizers import Encoding
 import torch
 from numpy import around
@@ -110,7 +111,7 @@ def interpret(
     model.eval()
     with torch.no_grad():
         attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device)
-        extended_attention_mask = model.get_extended_attention_mask(attention_mask, input_embedding[0].shape).to(device)
+        extended_attention_mask = sdpa_mask(attention_mask, input_embedding[0].dtype, tgt_len = input_embedding[0].shape[1]).to(device)
         original_proba = model(
             input_ids = torch.tensor(original_sent_ids).unsqueeze(0).to(device),
             attention_mask = attention_mask # not passing through the encoder directly, attention is managed in the class

@@ -221,9 +221,9 @@ def main():
                         distance = None
                         start_embeddings = input_embedding
                         start_iteration = 0
-                    extended_attention_mask = model.get_extended_attention_mask(attention_mask, start_embeddings.shape)
-                    sdpa_attention_mask = sdpa_mask(attention_mask, start_embeddings.dtype, tgt_len = start_embeddings.shape[1])
-                    assert torch.all(extended_attention_mask == sdpa_attention_mask)
+                    # = model.get_extended_attention_mask(attention_mask, start_embeddings.shape)
+                    extended_attention_mask = sdpa_mask(attention_mask, start_embeddings.dtype, tgt_len = start_embeddings.shape[1])
+                    
                     explore(
                         same_equivalence_class=(algorithm == "simec"),
                         input_embedding=start_embeddings.to(device),
@@ -246,6 +246,7 @@ def main():
                         dtype = torch.float64,
                         attention_mask=extended_attention_mask.to(device),
                     )
+                    
                     
                     pbar.update(1)
                 except Exception as e:
