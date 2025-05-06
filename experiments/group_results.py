@@ -152,9 +152,7 @@ if __name__ == "__main__":
         exp_res_dir = get_latest_experiment(
             res_dir, os.path.basename(os.path.normpath(config_file))
         )
-        if dataset == "cifar" and p["delta_mult"] == 5.0:
-            continue
-        if dataset == "cifar" and p["patches"] == "all" and p["delta_mult"] == 1.0:
+        if  p["delta_mult"] == 5.0 or p["delta_mult"] == 0.1:
             continue
         if exp_res_dir is None:
             print(f"No result files found for {config_file}")

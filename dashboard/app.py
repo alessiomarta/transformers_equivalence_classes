@@ -137,7 +137,7 @@ def create_layout(input_names, delta_mults):
 
 # ------------- App & Callbacks ------------------------
 app = dash.Dash(__name__)
-df = load_data("temp")
+df = load_data("all_experiments")
 vocab =  sorted(set(token for tokens in df[df["dataset"] == "winobias"]['evaluated_tokens'] for token in tokens))
 mask = df["dataset"] == "winobias"
 df.loc[mask, "embedding_pred_proba"] = df.loc[mask].apply(
