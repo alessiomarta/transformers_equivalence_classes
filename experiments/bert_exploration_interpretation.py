@@ -111,7 +111,9 @@ def interpret(
     model.eval()
     with torch.no_grad():
         attention_mask = torch.tensor(encoded_sent.attention_mask).unsqueeze(0).to(device)
-        extended_attention_mask = sdpa_mask(attention_mask, input_embedding[0].dtype, tgt_len = input_embedding[0].shape[1]).to(device)
+        extended_attention_mask = sdpa_mask(attention_mask, input_embedding[0].dtype, tgt_len = input_embedding[0].shape[0])
+        if extended_attention_mask is not None: # it is none if attention_mask is all 1
+            extended_attention_mask = extended_attention_mask.to(device)
         original_proba = model(
             input_ids = torch.tensor(original_sent_ids).unsqueeze(0).to(device),
             attention_mask = attention_mask # not passing through the encoder directly, attention is managed in the class
@@ -119,7 +121,7 @@ def interpret(
         
         if mask_or_cls.lower() in ['mask','msk','mlm']:
             mlm_preds = decoder(model.bert.encoder(
-                input_embedding, 
+                input_embedding,
                 attention_mask = extended_attention_mask)[0]) # these are logits!
             # mlm_preds.shape = n_iterations, max_len, vocab_size
             maxima = torch.argmax(mlm_preds, dim=-1)
