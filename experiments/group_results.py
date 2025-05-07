@@ -81,6 +81,8 @@ def get_latest_experiment(base_dir, experiment_prefix):
     # Sort directories by timestamp
     matching_dirs.sort(key=extract_timestamp, reverse=True)
     latest_exp_dir = os.path.join(base_dir, matching_dirs[0])
+    if "hatespeech" in latest_exp_dir and ("20250506" in latest_exp_dir or "20250507" in latest_exp_dir): #TODO remove when ready
+        latest_exp_dir = os.path.join(base_dir, matching_dirs[1])
     if latest_exp_dir is None:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), f"Not found matching result dir for experiment: {experiment_prefix}")
 
@@ -161,7 +163,7 @@ if __name__ == "__main__":
         not_ok = False
         for img, img_c in tqdm(
             c.items(),
-            desc=f"Processing results in {os.path.basename(config_file)}",
+            desc=f"Processing results in {os.path.basename(exp_res_dir)}",
             leave=False,
         ):
             algorithms = ["simec", "simexp"] if p["algo"] == ["both"] else p["algo"]
@@ -350,4 +352,9 @@ if __name__ == "__main__":
     print("Saving parquet...")
     results[non_array_columns].to_parquet(
         os.path.join(res_dir, f"{args.out_name.lower()}_results.parquet"), index=False
+    )
+    print("Saving input embeddings...")
+    savez_compressed(
+        os.path.join(res_dir, f"{args.out_name.lower()}_embeddings_input.npz"),
+        input_embedding = results["input_embedding"].values,
     )
