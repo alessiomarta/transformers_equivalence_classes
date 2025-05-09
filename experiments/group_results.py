@@ -81,7 +81,7 @@ def get_latest_experiment(base_dir, experiment_prefix):
     # Sort directories by timestamp
     matching_dirs.sort(key=extract_timestamp, reverse=True)
     latest_exp_dir = os.path.join(base_dir, matching_dirs[0])
-    if "hatespeech" in latest_exp_dir and ("20250506" in latest_exp_dir or "20250507" in latest_exp_dir): #TODO remove when ready
+    if "hatespeech-1p0-16-all-20250508-195531" in latest_exp_dir: #TODO remove when ready
         latest_exp_dir = os.path.join(base_dir, matching_dirs[1])
     if latest_exp_dir is None:
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), f"Not found matching result dir for experiment: {experiment_prefix}")
