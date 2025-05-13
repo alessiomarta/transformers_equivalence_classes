@@ -7,7 +7,7 @@ for dir in experiments_data/*; do
     #echo "Checking: $basename_dir"
 
     # Only proceed if it's a CIFAR experiment 
-    if [[ "$dir" == *hatespeech* || "$dir" == *winobias* ]]; then
+    if [[ "$dir" == *hatespeech* && "$dir" != *1p0-15-all* ]]; then
         # Find all matching resdirs and sort them by timestamp (descending)
         matched_resdirs=($(ls -d ../res/*"$basename_dir"* 2>/dev/null | sort -t '-' -k6,6 -k7,7 -r))
 
