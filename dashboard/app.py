@@ -131,9 +131,12 @@ def create_layout(input_names, delta_mults):
             marks={i: INVERSE_PATCH_MAP[i] for i in range(1, 7)}
         ),
         *[dcc.Graph(id=fig_id, style={"width": "50%", "float": "left"}) for fig_id in [
+            #"lineplot-embedding",  "confusion-matrix",
+            #"lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp",
+            #"conf-matrix-original-modified", "conf-matrix-original-embedding","scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
             "lineplot-embedding",  "confusion-matrix",
             "lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp",
-            "conf-matrix-original-modified", "conf-matrix-original-embedding","scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
+            "scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff",
         ]]
     ])
 
@@ -166,9 +169,11 @@ app.layout = create_layout(INPUT_NAMES, DELTA_MULTS)
 
 @app.callback(
     [Output(fig, "figure") for fig in [
+        #"lineplot-embedding", "confusion-matrix",
+        #"lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp",
+        #"conf-matrix-original-modified","conf-matrix-original-embedding", "scatter-norm_vs_pixel_diff", #"scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
         "lineplot-embedding", "confusion-matrix",
-        "lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp",
-        "conf-matrix-original-modified","conf-matrix-original-embedding", "scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
+        "lineplot-simec", "lineplot-simexp", "all-class-pred-proba-simec", "all-class-pred-proba-simexp", "scatter-norm_vs_pixel_diff", "scatter-norm_vs_proba_diff", "scatter-max_vs_pixel_diff", "scatter-max_vs_proba_diff", 
     ]],
     [Input("input-name", "value"), Input("delta-mult", "value"), Input("explore-patches", "value")]
 ) 
@@ -187,7 +192,7 @@ def update_all_plots(input_name, delta_mult, explore_patches_len):
             font=dict(size=20, family="Arial", color="black")
         ) 
         fig.update_layout(xaxis=dict(visible=False), yaxis=dict(visible=False), plot_bgcolor="white")
-        return [fig] * 12
+        return [fig] * 10
     
     return generate_all_figures(filtered, input_name)
 
@@ -202,14 +207,14 @@ def generate_all_figures(filtered_df, input_name):
     fig6 = delta_vs_pixel_diff(filtered_df)
     fig7 = plot_embedding_all_class_prob(filtered_df, "simec", class_labels)
     fig8 = plot_embedding_all_class_prob(filtered_df, "simexp", class_labels)
-    fig9 = plot_conf_matrix_orig_modified(filtered_df, class_labels, input_name)
-    fig9a = plot_conf_matrix_orig_embed(filtered_df, class_labels, input_name)
+    #fig9 = plot_conf_matrix_orig_modified(filtered_df, class_labels, input_name)
+    #fig9a = plot_conf_matrix_orig_embed(filtered_df, class_labels, input_name)
     fig10 = norm_vs_pixel_diff(filtered_df)
     fig11 = norm_vs_proba_diff(filtered_df)
     fig12 = max_vs_pixel_diff(filtered_df)
     fig13 = max_vs_proba_diff(filtered_df)
 
-    return [fig1, fig2, fig3, fig6, fig7, fig8, fig9, fig9a, fig10, fig11, fig12, fig13]
+    return [fig1, fig2, fig3, fig6, fig7, fig8,  fig10, fig11, fig12, fig13]#fig9, fig9a,
 
 # ------------- Run the App ---------------------------
 

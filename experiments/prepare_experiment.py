@@ -504,10 +504,10 @@ def interactive_argument_parser():
         choices=["simec", "simexp", "both"],
         multiple=True,
     )
-    args["iterations"] = int(get_user_input("Number of iterations", default=5000))
+    args["iterations"] = int(get_user_input("Number of iterations", default=1000))
 
     # Fixing the issue for 'multiple=True' for delta_mult
-    delta_mult_input = get_user_input("Delta multiplier", default=1, multiple=True)
+    delta_mult_input = get_user_input("Delta multiplier", default=[1,10], multiple=True)
     if isinstance(delta_mult_input, list):
         args["delta_mult"] = [float(x) for x in delta_mult_input]
     else:
@@ -515,10 +515,10 @@ def interactive_argument_parser():
 
     args["threshold"] = float(get_user_input("Threshold value", default= 1e-6))
     args["save_each"] = int(
-        get_user_input("Save results every n iterations", default=1)
+        get_user_input("Save results every n iterations", default=10)
     )
-    args["inputs"] = int(get_user_input("Number of inputs per experiment", default=20))
-    args["repeat"] = int(get_user_input("Number of repetitions", default=5))
+    args["inputs"] = int(get_user_input("Number of inputs per experiment", default=16))
+    args["repeat"] = int(get_user_input("Number of repetitions", default=3))
 
     args["patches"] = get_user_input(
         "Patch mode(s)",
@@ -620,7 +620,7 @@ if __name__ == "__main__":
                 "exp_name": "hatespeech",
                 "orig_data_dir": "../data/measuring-hate-speech_txts",
                 "model_path": "ctoraman/hate-speech-bert",
-                "vocab_tokens": [1, 5, 10],  # Vocab % for eval
+                "vocab_tokens": [5],  # Vocab % for eval
             },
             "winobias": {
                 "exp_name": "winobias",
@@ -628,13 +628,13 @@ if __name__ == "__main__":
                 "model_path": "bert-base-uncased",
                 "patches": "target-word",  # Target specific patches for tokenized target words
                 "objective": "mlm",  # Masked language model objective
-                "vocab_tokens": [1, 5, 10],  # Vocab % for eval
+                "vocab_tokens": [5],  # Vocab % for eval
             },
         }
 
         # Define parameter variations to iterate through
-        DELTA_MULT_VALUES = [1, 5]
-        INPUT_VALUES = 10 if args.test else 50
+        DELTA_MULT_VALUES = [1, 10]
+        INPUT_VALUES = 16
         PATCH_OPTIONS = ["all", "one", "q2"]
 
         # Iterate through predefined experiments and generate configurations
