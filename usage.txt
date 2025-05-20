@@ -22,7 +22,7 @@
 
 4. All explorations and interpretations:
     cd sh-scripts
-    bash image-experiments.sh
+    bash all_experiments.sh
 
 4a. For a single exploration:
     python3 vit_exploration.py --experiment-path ./experiments_data/cifar-1p0-16-all --out-dir ../res

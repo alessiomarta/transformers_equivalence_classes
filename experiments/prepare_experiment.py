@@ -594,7 +594,7 @@ if __name__ == "__main__":
             ),  # Number of iterations, shorter for test mode
             "delta_mult": None,  # Multiplier for delta adjustment
             "threshold": 0.01,  # Default threshold for experiments
-            "save_each": 50,  # Frequency of saving results after iterations
+            "save_each": 10,  # Frequency of saving results after iterations
             "inputs": None,  # Number of inputs per experiment (to be defined later)
             "repeat": 3,  # Number of times to repeat experiments (to be determined dynamically)
             "patches": None,  # Patch exploration options (set dynamically)
