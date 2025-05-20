@@ -1,0 +1,9 @@
+dataset_name,delta_multiplier,volume_ratio_test,volume_ratio_test_pvalue
+cifar,1.0,158.8,0.0
+cifar,10.0,82.327,0.0
+hatespeech,1.0,8.891,0.0
+hatespeech,10.0,2.44,0.007
+mnist,1.0,99.304,0.0
+mnist,10.0,28.166,0.0
+winobias,1.0,30.575,0.0
+winobias,10.0,14.678,0.0
