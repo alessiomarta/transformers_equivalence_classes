@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![ArXiv](https://img.shields.io/badge/ArXiv-2404.06104-B31B1B.svg)](https://arxiv.org/abs/2404.06104)
+[![ArXiv](https://img.shields.io/badge/ArXiv-2404.06104-B31B1B.svg)](https://arxiv.org/abs/2410.06019)
 
 This repository contains the official implementation of the paper [**Unveiling Transformer Perception by Exploring Input Manifolds**](https://arxiv.org/abs/2410.06019).
 
