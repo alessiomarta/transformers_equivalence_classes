@@ -103,15 +103,17 @@ Our experiments on **ViT (CIFAR-10, MNIST)** and **BERT (Hate Speech, WinoBias)*
 
 ## 📜 Citation
 
-If you use this code or findings in your research, please cite:
+This paper has been accepted at NeurIPS 2025. Until the proceedings had not come out yet, pleace cite:
 
 ```bibtex
-@article{benfenati2024unveiling,
-  title={Unveiling Transformer Perception by Exploring Input Manifolds},
-  author={Benfenati, Alessandro and Ferrara, Alfio and Marta, Alessio and Riva, Davide and Rocchetti, Elisabetta},
-  journal={Preprint under review},
-  year={2024},
-  url={https://arxiv.org/abs/2404.06104}
+@misc{benfenati2025unveilingtransformerperceptionexploring,
+      title={Unveiling Transformer Perception by Exploring Input Manifolds}, 
+      author={Alessandro Benfenati and Alfio Ferrara and Alessio Marta and Davide Riva and Elisabetta Rocchetti},
+      year={2025},
+      eprint={2410.06019},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2410.06019}, 
 }
 ```
 
